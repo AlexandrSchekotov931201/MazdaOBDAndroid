@@ -19,6 +19,7 @@ import androidx.lifecycle.ViewModelProvider
 import car.mazda.obd.android.ui.compose.screen.LogsScreen
 import car.mazda.obd.android.ui.compose.screen.MainScreen
 import car.mazda.obd.android.ui.theme.MazdaOBDAndroidTheme
+import car.mazda.obd.android.ui.utils.sound.SoundPlayer
 import car.mazda.obd.android.ui.utils.sound.SpeechPlayer
 
 class MainActivity : ComponentActivity() {
@@ -33,6 +34,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private val speechPlayer by lazy { SpeechPlayer(this) }
+    private val soundPlayer by lazy { SoundPlayer() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,6 +49,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.padding(innerPadding),
                             viewModel = viewModel,
                             speechPlayer = speechPlayer,
+                            soundPlayer = soundPlayer,
                             onOpenLogs = { screen = "logs" }
                         )
 
@@ -70,6 +73,11 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         speechPlayer.stop()
+    }
+
+    override fun onDestroy() {
+        soundPlayer.release()
+        super.onDestroy()
     }
 
     private fun requestWifiPermission() {

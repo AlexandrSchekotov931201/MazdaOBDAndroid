@@ -9,6 +9,8 @@ import car.mazda.obd.android.elm.OBDSessionState
 import car.mazda.obd.android.logs.AppLogger
 import car.mazda.obd.android.ui.command.MainViewCommand
 import car.mazda.obd.android.ui.mapper.MainViewMapper
+import car.mazda.obd.android.ui.trip.TripState
+import car.mazda.obd.android.ui.trip.TripStateManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -17,9 +19,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
@@ -33,6 +33,7 @@ class MainViewModel : ViewModel() {
     )
 
     private val viewMapper = MainViewMapper()
+    private val tripStateManager = TripStateManager(viewModelScope)
 
     private val _mainViewCommands = MutableSharedFlow<MainViewCommand>()
     val mainViewCommands: SharedFlow<MainViewCommand> = _mainViewCommands
@@ -58,7 +59,7 @@ class MainViewModel : ViewModel() {
 
         observeSessionState()
         observeEngineRpmState()
-        playGreeting()
+        observeTripState()
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { sessionManager.startSession() }
                 .exceptionOrNull()
@@ -88,13 +89,28 @@ class MainViewModel : ViewModel() {
         }
     }
 
-    private fun playGreeting() {
+    private fun observeTripState() {
         viewModelScope.launch(Dispatchers.IO) {
-            sessionManager.sessionState
-                .filter { it is OBDSessionState.Ready }
-                .take(1)
-                .collect {
-                    _mainViewCommands.emit(MainViewCommand.SoundGreeting)
+            var previousState: TripState = TripState.Idle
+
+            tripStateManager.tripState
+                .collect { state ->
+                    when (state) {
+                        is TripState.Active -> {
+                            if (previousState is TripState.Idle) {
+                                AppLogger.log("Play greeting sound")
+                                _mainViewCommands.emit(MainViewCommand.SoundGreeting)
+                            }
+                        }
+                        is TripState.Idle -> {
+                            if (previousState is TripState.Finishing) {
+                                AppLogger.log("Play goodbye sound")
+                                _mainViewCommands.emit(MainViewCommand.SoundGoodbye)
+                            }
+                        }
+                        is TripState.Finishing -> Unit
+                    }
+                    previousState = state
                 }
         }
     }
@@ -107,7 +123,10 @@ class MainViewModel : ViewModel() {
                 .catch { t ->
                     AppLogger.log("rpmFlow error: ${t.message}")
                 }
-                .collect { _rpmState.value = it }
+                .collect {
+                    _rpmState.value = it
+                    tripStateManager.onRpmChanged(it)
+                }
         }
     }
 }

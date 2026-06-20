@@ -26,12 +26,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import car.mazda.obd.android.ui.MainViewModel
 import car.mazda.obd.android.ui.command.MainViewCommand
 import car.mazda.obd.android.ui.compose.MazdaStyleTachometer
+import car.mazda.obd.android.ui.utils.sound.SoundPatterns
+import car.mazda.obd.android.ui.utils.sound.SoundPlayer
 import car.mazda.obd.android.ui.utils.sound.SpeechPlayer
 
 @Composable
 internal fun MainScreen(
     viewModel: MainViewModel,
     speechPlayer: SpeechPlayer,
+    soundPlayer: SoundPlayer,
     onOpenLogs: () -> Unit,
     modifier: Modifier
 ) {
@@ -43,6 +46,10 @@ internal fun MainScreen(
             when (cmd) {
                 MainViewCommand.SoundGreeting -> {
                     speechPlayer.greetingSound()
+                }
+
+                MainViewCommand.SoundGoodbye -> {
+                    soundPlayer.playPattern(SoundPatterns.TripleLongAlert)
                 }
             }
         }

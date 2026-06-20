@@ -18,4 +18,8 @@ class SoundPlayer(
             delay(pattern.pauseMs)
         }
     }
+
+    fun release() {
+        toneGenerator.release()
+    }
 }

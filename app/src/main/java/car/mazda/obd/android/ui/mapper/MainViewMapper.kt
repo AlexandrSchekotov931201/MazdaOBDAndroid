@@ -16,10 +16,17 @@ class MainViewMapper {
         return when (response) {
             is OBDResponse.Data -> mapEngineRpm(response.data)
             is OBDResponse.NoData -> {
-                AppLogger.log("map another OBDResponse: $response")
-                AppLogger.log("OBDResponse raw: ${response.raw}")
-                if (response is OBDResponse.NoData.Error) {
-                    AppLogger.log("OBDResponse raw: ${response.throwable}")
+                when (response) {
+                    is OBDResponse.NoData.Empty,
+                    is OBDResponse.NoData.Searching -> Unit
+
+                    is OBDResponse.NoData.Unrecognized -> {
+                        AppLogger.log("Unrecognized OBD response: ${response.raw}")
+                    }
+
+                    is OBDResponse.NoData.Error -> {
+                        AppLogger.log("OBD response error: ${response.throwable}")
+                    }
                 }
 
                 0
