@@ -6,7 +6,8 @@ import androidx.lifecycle.ViewModelProvider
 class MainViewModelFactory : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
-            return MainViewModel() as T
+            return modelClass.cast(MainViewModel())
+                ?: throw IllegalArgumentException("Could not create MainViewModel")
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

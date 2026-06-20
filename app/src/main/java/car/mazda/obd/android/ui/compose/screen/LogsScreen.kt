@@ -21,7 +21,6 @@ fun LogsScreen(
     onBack: () -> Unit,
     modifier: Modifier
 ) {
-
     val logs by AppLogger.logs.collectAsState()
 
     Column(
@@ -43,7 +42,7 @@ fun LogsScreen(
             onClick = onBack,
             modifier = Modifier.align(Alignment.CenterHorizontally)
         ) {
-            Text("Назад")
+            Text("Back")
         }
     }
 }

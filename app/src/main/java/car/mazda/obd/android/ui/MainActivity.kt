@@ -75,7 +75,6 @@ class MainActivity : ComponentActivity() {
     private fun requestWifiPermission() {
         when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
-                // Android 13+
                 ActivityCompat.requestPermissions(
                     this,
                     arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES),
@@ -84,16 +83,11 @@ class MainActivity : ComponentActivity() {
             }
 
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
-                // Android 10–12
                 ActivityCompat.requestPermissions(
                     this,
                     arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
                     1002
                 )
-            }
-
-            else -> {
-                // Android 9 и ниже — ничего не нужно
             }
         }
     }

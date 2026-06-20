@@ -4,20 +4,30 @@ import car.mazda.obd.android.elm.exception.AdapterUnreachableException
 import car.mazda.obd.android.elm.exception.LostConnectionException
 import car.mazda.obd.android.elm.exception.NetworkUnavailableException
 import car.mazda.obd.android.logs.AppLogger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.coroutines.coroutineContext
 
 class OBDSessionManager(
     private val client: OBDClient,
+    private val scope: CoroutineScope,
 ) {
+    private companion object {
+        const val RECONNECT_DELAY_MS = 5000L
+    }
+
     private val _sessionState = MutableStateFlow<OBDSessionState>(OBDSessionState.Idle)
     val sessionState: StateFlow<OBDSessionState> = _sessionState
 
-    private val reconnectMutex = kotlinx.coroutines.sync.Mutex()
-    private var reconnectInProgress = false
+    private val reconnectLock = Any()
+    private var reconnectJob: Job? = null
 
     suspend fun startSession() {
         try {
@@ -37,29 +47,35 @@ class OBDSessionManager(
         }
     }
 
-    suspend fun stopSession() {
+    suspend fun stopSession(cancelReconnect: Boolean = true) {
+        if (cancelReconnect) {
+            synchronized(reconnectLock) {
+                reconnectJob?.cancel()
+                reconnectJob = null
+            }
+        }
         client.release()
         _sessionState.value = OBDSessionState.Idle
     }
 
-    suspend fun requestReconnect(t: Throwable) {
-        AppLogger.log("Try reconnect")
-        if (t is CancellationException) throw t
+    fun requestReconnect(t: Throwable) {
+        if (t is CancellationException) return
         if (!t.isReconnectable()) return
 
-        val acquired = reconnectMutex.withLock {
-            if (reconnectInProgress) return@withLock false
-            reconnectInProgress = true
-            true
+        synchronized(reconnectLock) {
+            if (reconnectJob?.isActive == true) return
+
+            reconnectJob = scope.launch(Dispatchers.IO) {
+                reconnectLoop()
+            }
         }
-        if (!acquired) return
+    }
 
+    private suspend fun reconnectLoop() {
+        AppLogger.log("Try reconnect")
         try {
-            val delayMs = 5000L
-
-            while (true) {
-                // чистим старое
-                stopSession()
+            while (coroutineContext.isActive) {
+                stopSession(cancelReconnect = false)
 
                 val result = runCatching { startSession() }
                 if (result.isSuccess) {
@@ -69,16 +85,16 @@ class OBDSessionManager(
 
                 val err = result.exceptionOrNull()
                 if (err is CancellationException) throw err
-
-                // если ошибка уже не “сетевого” класса — прекращаем цикл
                 if (err == null || !err.isReconnectable()) return
 
-                // маленький backoff, чтобы не долбиться
-                delay(delayMs)
+                delay(RECONNECT_DELAY_MS)
                 AppLogger.log("Continue reconnect")
             }
         } finally {
-            reconnectMutex.withLock { reconnectInProgress = false }
+            val currentJob = coroutineContext[Job]
+            synchronized(reconnectLock) {
+                if (reconnectJob == currentJob) reconnectJob = null
+            }
         }
     }
 

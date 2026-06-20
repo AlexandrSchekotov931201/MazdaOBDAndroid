@@ -10,7 +10,6 @@ import car.mazda.obd.android.elm.exception.NetworkUnavailableException
 import car.mazda.obd.android.elm.exception.ProtocolException
 import car.mazda.obd.android.elm.exception.UnknownObdException
 import car.mazda.obd.android.elm.mapper.OBDDataMapper
-import car.mazda.obd.android.logs.AppLogger
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.BufferedReader
@@ -50,37 +49,37 @@ class OBDClient {
         } catch (e: UnknownHostException) {
             unlockedRelease()
             throw NetworkUnavailableException(
-                message = "Нет сети/DNS: ${e.message}",
+                message = "Network/DNS unavailable: ${e.message}",
                 cause = e,
             )
         } catch (e: NoRouteToHostException) {
             unlockedRelease()
             throw NetworkUnavailableException(
-                message = "Нет маршрута до $host. Проверь Wi-Fi сети адаптера.",
+                message = "No route to $host. Check the adapter Wi-Fi network.",
                 cause = e,
             )
         } catch (e: SocketTimeoutException) {
             unlockedRelease()
             throw AdapterUnreachableException(
-                message = "Таймаут подключения к $host:$port. Возможно, адаптер недоступен.",
+                message = "Connection timeout to $host:$port. The adapter may be unreachable.",
                 cause = e,
             )
         } catch (e: ConnectException) {
             unlockedRelease()
             throw AdapterUnreachableException(
-                message = "Не удалось подключиться к $host:$port: ${e.message}",
+                message = "Could not connect to $host:$port: ${e.message}",
                 cause = e,
             )
         } catch (e: SecurityException) {
             unlockedRelease()
             throw NetworkUnavailableException(
-                message = "Нет прав/ограничения сети: ${e.message}",
+                message = "Missing permissions or network restriction: ${e.message}",
                 cause = e,
             )
         } catch (e: Exception) {
             unlockedRelease()
             throw UnknownObdException(
-                message = "Ошибка подключения: ${e.message}",
+                message = "Connection error: ${e.message}",
                 cause = e,
             )
         }
@@ -103,8 +102,8 @@ class OBDClient {
         unlockedRequest(req.value)
 
     private fun unlockedRequest(request: String): OBDResponse {
-        val w = writer ?: throw NetworkUnavailableException("Writer is null — socket closed")
-        val r = reader ?: throw NetworkUnavailableException("Reader is null — socket closed")
+        val w = writer ?: throw NetworkUnavailableException("Writer is null - socket closed")
+        val r = reader ?: throw NetworkUnavailableException("Reader is null - socket closed")
 
         try {
             w.write(request + "\r")

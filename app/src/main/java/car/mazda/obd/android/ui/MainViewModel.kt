@@ -10,8 +10,7 @@ import car.mazda.obd.android.logs.AppLogger
 import car.mazda.obd.android.ui.command.MainViewCommand
 import car.mazda.obd.android.ui.mapper.MainViewMapper
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -22,12 +21,12 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
-@OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModel : ViewModel() {
 
     private val client = OBDClient()
-    private val sessionManager = OBDSessionManager(client)
+    private val sessionManager = OBDSessionManager(client, viewModelScope)
     private val dataReader = OBDDataReader(
         client = client,
         sessionManager = sessionManager
@@ -38,20 +37,25 @@ class MainViewModel : ViewModel() {
     private val _mainViewCommands = MutableSharedFlow<MainViewCommand>()
     val mainViewCommands: SharedFlow<MainViewCommand> = _mainViewCommands
 
-    private val _connectionTextState = MutableStateFlow("Подключение к адаптеру...")
+    private val _connectionTextState = MutableStateFlow("Connecting to adapter...")
     val connectionTextState: StateFlow<String> = _connectionTextState
 
     private val _rpmState = MutableStateFlow(0)
     val rpmState: StateFlow<Int> = _rpmState
 
+    private var started = false
+
     override fun onCleared() {
-        super.onCleared()
-        viewModelScope.launch(Dispatchers.IO) {
+        runBlocking(Dispatchers.IO + NonCancellable) {
             sessionManager.stopSession()
         }
+        super.onCleared()
     }
 
     fun onCreate() {
+        if (started) return
+        started = true
+
         observeSessionState()
         observeEngineRpmState()
         playGreeting()
@@ -68,12 +72,12 @@ class MainViewModel : ViewModel() {
                 .map { state ->
                     when (state) {
                         is OBDSessionState.Idle,
-                        is OBDSessionState.ConnectingSocket -> "Подключение к сокету..."
+                        is OBDSessionState.ConnectingSocket -> "Connecting to socket..."
 
-                        is OBDSessionState.InitializingEcu -> "Подключение к ЭБУ..."
-                        is OBDSessionState.Ready -> "Готово"
+                        is OBDSessionState.InitializingEcu -> "Initializing ECU..."
+                        is OBDSessionState.Ready -> "Ready"
                         is OBDSessionState.Error -> {
-                            "Ошибка подключения: ${state.throwable.message ?: state.throwable.toString()}"
+                            "Connection error: ${state.throwable.message ?: state.throwable.toString()}"
                         }
                     }
                 }

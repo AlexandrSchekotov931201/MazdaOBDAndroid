@@ -9,7 +9,7 @@ class SpeechPlayer(private val context: Context) {
     private var player: MediaPlayer? = null
 
     fun greetingSound() {
-        stop() // гарантируем один звук за раз
+        stop()
 
         player = MediaPlayer.create(context, R.raw.greeting_sound).apply {
             setOnCompletionListener {
@@ -30,5 +30,4 @@ class SpeechPlayer(private val context: Context) {
         }
         player = null
     }
-
 }

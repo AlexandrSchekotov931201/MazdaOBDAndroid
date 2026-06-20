@@ -5,31 +5,31 @@ sealed class OBDException(
     cause: Throwable? = null
 ) : Exception(message, cause)
 
-/** Не подключены к Wi-Fi / нет сети / нет маршрута (скорее всего не в сети ELM) */
+/** Not connected to Wi-Fi, no route, or not on the ELM adapter network. */
 class NetworkUnavailableException(
     message: String = "Network unavailable",
     cause: Throwable? = null
 ) : OBDException(message, cause)
 
-/** Wi-Fi есть, но адаптер/хост недоступен (таймаут/connection refused) */
+/** Wi-Fi is available, but the adapter host is unreachable or refused the connection. */
 class AdapterUnreachableException(
     message: String = "Adapter unreachable",
     cause: Throwable? = null
 ) : OBDException(message, cause)
 
-/** Потеря соединения в процессе работы (read/write, socket closed) */
+/** Connection was lost while reading, writing, or when the remote socket closed. */
 class LostConnectionException(
     message: String = "Lost connection",
     cause: Throwable? = null
 ) : OBDException(message, cause)
 
-/** Ошибка протокола/парсинга ответа ELM/OBD */
+/** ELM/OBD response protocol or parsing error. */
 class ProtocolException(
     message: String = "Protocol error",
     cause: Throwable? = null
 ) : OBDException(message, cause)
 
-/** Любая другая непредвиденная ошибка */
+/** Any unexpected OBD error that does not fit a narrower category. */
 class UnknownObdException(
     message: String = "Unknown error",
     cause: Throwable? = null

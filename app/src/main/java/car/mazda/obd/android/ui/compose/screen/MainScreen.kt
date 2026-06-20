@@ -63,7 +63,7 @@ private fun MainContent(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "Статус: $connectionText",
+            text = "Status: $connectionText",
         )
         Spacer(Modifier.height(16.dp))
         MazdaStyleTachometer(
@@ -71,7 +71,7 @@ private fun MainContent(
         )
         Spacer(Modifier.height(24.dp))
         Button(onClick = onOpenLogs) {
-            Text("Открыть логи")
+            Text("Open logs")
         }
     }
 }
