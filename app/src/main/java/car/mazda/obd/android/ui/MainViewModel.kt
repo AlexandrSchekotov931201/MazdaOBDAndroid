@@ -9,6 +9,7 @@ import car.mazda.obd.android.elm.OBDSessionState
 import car.mazda.obd.android.logs.AppLogger
 import car.mazda.obd.android.ui.command.MainViewCommand
 import car.mazda.obd.android.ui.mapper.MainViewMapper
+import car.mazda.obd.android.ui.trip.EngineRpmSample
 import car.mazda.obd.android.ui.trip.TripState
 import car.mazda.obd.android.ui.trip.TripStateManager
 import kotlinx.coroutines.Dispatchers
@@ -123,10 +124,17 @@ class MainViewModel : ViewModel() {
                 .catch { t ->
                     AppLogger.log("rpmFlow error: ${t.message}")
                 }
-                .collect {
-                    _rpmState.value = it
-                    tripStateManager.onRpmChanged(it)
+                .collect { sample ->
+                    _rpmState.value = sample.displayRpm()
+                    tripStateManager.onRpmSample(sample)
                 }
         }
     }
+
+    private fun EngineRpmSample.displayRpm(): Int =
+        when (this) {
+            is EngineRpmSample.Value -> rpm
+            is EngineRpmSample.NoData,
+            is EngineRpmSample.ConnectionError -> 0
+        }
 }

@@ -4,6 +4,7 @@ import car.mazda.obd.android.elm.entity.CanIds
 import car.mazda.obd.android.elm.entity.OBDData
 import car.mazda.obd.android.elm.entity.OBDResponse
 import car.mazda.obd.android.logs.AppLogger
+import car.mazda.obd.android.ui.trip.EngineRpmSample
 
 class MainViewMapper {
 
@@ -12,24 +13,24 @@ class MainViewMapper {
         private const val RPM_DIVISOR = 4
     }
 
-    fun mapEngineRpm(response: OBDResponse): Int {
+    fun mapEngineRpm(response: OBDResponse): EngineRpmSample {
         return when (response) {
-            is OBDResponse.Data -> mapEngineRpm(response.data)
+            is OBDResponse.Data -> EngineRpmSample.Value(mapEngineRpm(response.data))
             is OBDResponse.NoData -> {
                 when (response) {
                     is OBDResponse.NoData.Empty,
-                    is OBDResponse.NoData.Searching -> Unit
+                    is OBDResponse.NoData.Searching -> EngineRpmSample.NoData
 
                     is OBDResponse.NoData.Unrecognized -> {
                         AppLogger.log("Unrecognized OBD response: ${response.raw}")
+                        EngineRpmSample.NoData
                     }
 
                     is OBDResponse.NoData.Error -> {
                         AppLogger.log("OBD response error: ${response.throwable}")
+                        EngineRpmSample.ConnectionError(response.throwable)
                     }
                 }
-
-                0
             }
         }
     }

@@ -9,6 +9,8 @@ class SpeechPlayer(private val context: Context) {
     private var player: MediaPlayer? = null
 
     fun greetingSound() {
+        if (player?.isPlaying == true) return
+
         stop()
 
         player = MediaPlayer.create(context, R.raw.greeting_sound).apply {

@@ -17,11 +17,23 @@ class TripStateManager(
 
     private var finishJob: Job? = null
 
-    fun onRpmChanged(rpm: Int) {
-        if (rpm > 0) {
-            onEngineRunning(rpm)
-        } else {
-            onEngineStoppedCandidate()
+    fun onRpmSample(sample: EngineRpmSample) {
+        when (sample) {
+            is EngineRpmSample.Value -> {
+                if (sample.rpm > 0) {
+                    onEngineRunning(sample.rpm)
+                } else {
+                    onEngineStoppedCandidate()
+                }
+            }
+            is EngineRpmSample.NoData -> onEngineStoppedCandidate()
+            is EngineRpmSample.ConnectionError -> onConnectionProblem(sample.throwable)
+        }
+    }
+
+    private fun onConnectionProblem(t: Throwable) {
+        if (_tripState.value is TripState.Active) {
+            AppLogger.log("Trip keeps active during connection problem: ${t::class.simpleName}")
         }
     }
 
