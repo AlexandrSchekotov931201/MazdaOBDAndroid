@@ -31,12 +31,15 @@ class OBDSessionManager(
 
     suspend fun startSession() {
         try {
+            AppLogger.log("Connecting to OBD adapter")
             _sessionState.value = OBDSessionState.ConnectingSocket
             client.connect()
 
+            AppLogger.log("Initializing ECU")
             _sessionState.value = OBDSessionState.InitializingEcu
             client.initializingEcu()
 
+            AppLogger.log("OBD session ready")
             _sessionState.value = OBDSessionState.Ready
         } catch (t: Throwable) {
             if (t is CancellationException) throw t
