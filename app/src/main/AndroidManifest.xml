@@ -19,7 +19,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MazdaOBDAndroid">
         <activity
-            android:name=".ui.MainActivity"
+            android:name=".feature.dashboard.MainActivity"
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/Theme.MazdaOBDAndroid">
