@@ -6,27 +6,35 @@ class WarmupWarningManager(
     private val warmupReadyTempCelsius: Int = 75,
     private val warmupRpmLimit: Int = 2000,
     private val overheatTempCelsius: Int = 105,
-    private val warningCooldownMs: Long = 20_000L,
+    private val warmupRepeatIntervalMs: Long = 1_000L,
+    private val overheatRepeatIntervalMs: Long = 1_500L,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private var lastWarmupWarningAt = 0L
     private var lastOverheatWarningAt = 0L
 
     fun onEngineData(rpm: Int, coolantTempCelsius: Int?): WarmupWarning? {
-        val temp = coolantTempCelsius ?: return null
+        val temp = coolantTempCelsius ?: run {
+            resetWarnings()
+            return null
+        }
 
         if (temp >= overheatTempCelsius) {
-            return warningIfCooldownPassed(
+            lastWarmupWarningAt = 0L
+            return warningIfRepeatIntervalPassed(
                 lastAt = lastOverheatWarningAt,
                 updateLastAt = { lastOverheatWarningAt = it },
+                repeatIntervalMs = overheatRepeatIntervalMs,
                 warning = WarmupWarning.Overheat(temp),
             )
         }
 
         if (temp < warmupReadyTempCelsius && rpm > warmupRpmLimit) {
-            return warningIfCooldownPassed(
+            lastOverheatWarningAt = 0L
+            return warningIfRepeatIntervalPassed(
                 lastAt = lastWarmupWarningAt,
                 updateLastAt = { lastWarmupWarningAt = it },
+                repeatIntervalMs = warmupRepeatIntervalMs,
                 warning = WarmupWarning.HighRpmWhileCold(
                     rpm = rpm,
                     coolantTempCelsius = temp,
@@ -36,20 +44,27 @@ class WarmupWarningManager(
             )
         }
 
+        resetWarnings()
         return null
     }
 
-    private fun warningIfCooldownPassed(
+    private fun warningIfRepeatIntervalPassed(
         lastAt: Long,
         updateLastAt: (Long) -> Unit,
+        repeatIntervalMs: Long,
         warning: WarmupWarning,
     ): WarmupWarning? {
         val now = clock()
-        if (lastAt != 0L && now - lastAt < warningCooldownMs) return null
+        if (lastAt != 0L && now - lastAt < repeatIntervalMs) return null
 
         updateLastAt(now)
         AppLogger.log(warning.logMessage)
         return warning
+    }
+
+    private fun resetWarnings() {
+        lastWarmupWarningAt = 0L
+        lastOverheatWarningAt = 0L
     }
 }
 

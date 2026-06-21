@@ -127,8 +127,8 @@ HTML = """
     <div class="row">
       <b>Warmup / temperature warning tests:</b>
       <div class="hint">
-        App rule: coolant below 75 C + RPM above 2000 should beep once.
-        Coolant 105 C or higher should trigger critical warning at any RPM.
+        App rule: coolant below 75 C + RPM above 2000 should keep beeping while the condition is active.
+        Coolant 105 C or higher should keep playing the critical warning at any RPM.
       </div>
     </div>
     <div class="row preset">
@@ -138,7 +138,7 @@ HTML = """
       <button onclick="applyWarmupPreset('overheat_idle')">Overheat idle: critical</button>
     </div>
     <div class="row hint">
-      Presets keep ignition ON and update RPM + coolant together. The Android warmup warning has a 20s cooldown.
+      Presets keep ignition ON and update RPM + coolant together. Drop RPM or temperature back to normal to stop the repeated warning.
     </div>
 
     <hr/>

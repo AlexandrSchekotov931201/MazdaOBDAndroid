@@ -134,7 +134,6 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             dataReader.rpmFlow(periodMs = 100)
                 .map(viewMapper::mapEngineRpm)
-                .distinctUntilChanged()
                 .catch { t ->
                     AppLogger.log("rpmFlow error: ${t.message}")
                 }
@@ -151,7 +150,6 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             dataReader.coolantTemperatureFlow(periodMs = 1_000)
                 .map(viewMapper::mapEngineCoolantTemperature)
-                .distinctUntilChanged()
                 .catch { t ->
                     AppLogger.log("coolantTemperatureFlow error: ${t.message}")
                 }
