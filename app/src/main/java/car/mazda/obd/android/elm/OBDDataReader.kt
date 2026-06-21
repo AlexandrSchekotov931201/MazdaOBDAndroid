@@ -19,10 +19,16 @@ class OBDDataReader(
     private val sessionManager: OBDSessionManager,
 ) {
     fun rpmFlow(periodMs: Long): Flow<OBDResponse> =
+        requestFlow(periodMs, OBDRequest.EngineRpm)
+
+    fun coolantTemperatureFlow(periodMs: Long): Flow<OBDResponse> =
+        requestFlow(periodMs, OBDRequest.EngineCoolantTemperature)
+
+    private fun requestFlow(periodMs: Long, request: OBDRequest): Flow<OBDResponse> =
         sessionManager.sessionState
             .flatMapLatest { state ->
                 if (state is OBDSessionState.Ready) {
-                    tickerFlow(periodMs).map { safeRequest(OBDRequest.EngineRpm) }
+                    tickerFlow(periodMs).map { safeRequest(request) }
                 } else {
                     emptyFlow()
                 }

@@ -16,6 +16,7 @@ WEB_PORT = 8080
 state = {
     "ignition": True,
     "rpm": 850,
+    "coolant_temp": 40,
 
     # Connection/testing controls:
     "mute_responses": False,      # if True -> do not send any replies (simulate "adapter stopped responding")
@@ -96,6 +97,10 @@ HTML = """
     </div>
 
     <div class="row">
+      Coolant temp: <b id="coolantTemp">?</b> C
+    </div>
+
+    <div class="row">
       <button onclick="setIgn(true)">Ignition ON</button>
       <button onclick="setIgn(false)">Ignition OFF</button>
       <button onclick="syncState()" style="margin-left:8px;">Sync</button>
@@ -106,6 +111,13 @@ HTML = """
              oninput="setRpmLocal(this.value)"
              onchange="commitRpm(this.value)">
       <span id="rpmVal"></span>
+    </div>
+
+    <div class="row">
+      <input id="coolantTempRange" type="range" min="-20" max="130" step="1"
+             oninput="setCoolantTempLocal(this.value)"
+             onchange="commitCoolantTemp(this.value)">
+      <span id="coolantTempVal"></span>
     </div>
     <div class="row hint">Слайдер обновляет UI сразу. На сервер RPM отправляется при отпускании (onchange).</div>
 
@@ -202,10 +214,15 @@ let es = null;
 function applyStateToUi(s) {
   document.getElementById('ign').textContent = s.ignition ? 'ON' : 'OFF';
   document.getElementById('rpm').textContent = s.rpm;
+  document.getElementById('coolantTemp').textContent = s.coolant_temp;
 
   const slider = document.getElementById('rpmRange');
   slider.value = s.rpm;
   document.getElementById('rpmVal').textContent = s.rpm;
+
+  const tempSlider = document.getElementById('coolantTempRange');
+  tempSlider.value = s.coolant_temp;
+  document.getElementById('coolantTempVal').textContent = s.coolant_temp + " C";
 
   document.getElementById('muteChk').checked = !!s.mute_responses;
   document.getElementById('dropModeChk').checked = !!s.drop_connections;
@@ -293,6 +310,20 @@ async function commitRpm(v) {
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({rpm: parseInt(v)})
+  });
+}
+
+function setCoolantTempLocal(v) {
+  const temp = parseInt(v);
+  localState.coolant_temp = temp;
+  applyStateToUi(localState);
+}
+
+async function commitCoolantTemp(v) {
+  await fetch('/api/coolant_temp', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({coolant_temp: parseInt(v)})
   });
 }
 
@@ -454,6 +485,16 @@ def set_rpm():
         state["rpm"] = rpm
         if rpm > 0:
             state["ignition"] = True
+    notify_state()
+    return jsonify(ok=True)
+
+@app.post("/api/coolant_temp")
+def set_coolant_temp():
+    data = request.get_json(force=True)
+    temp = int(data.get("coolant_temp", 0))
+    temp = max(-20, min(130, temp))
+    with state_lock:
+        state["coolant_temp"] = temp
     notify_state()
     return jsonify(ok=True)
 
@@ -704,6 +745,18 @@ def handle_command(cmd: str) -> str:
         A = (value >> 8) & 0xFF
         B = value & 0xFF
         return f"7E8 04 41 0C {A:02X} {B:02X}"
+
+    # Coolant temperature request (01 05), A - 40
+    if c == "0105":
+        with state_lock:
+            ign = state["ignition"]
+            coolant_temp = state["coolant_temp"]
+
+        if not ign:
+            return "NO DATA"
+
+        A = max(0, min(255, int(coolant_temp) + 40))
+        return f"7E8 03 41 05 {A:02X}"
 
     return "NO DATA"
 

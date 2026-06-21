@@ -33,10 +33,12 @@ internal fun MainScreen(
 ) {
     val connectionTextState by viewModel.connectionTextState.collectAsStateWithLifecycle()
     val rpmState by viewModel.rpmState.collectAsStateWithLifecycle()
+    val warmupTextState by viewModel.warmupTextState.collectAsStateWithLifecycle()
 
     MainContent(
         connectionText = connectionTextState,
         rpm = rpmState,
+        warmupText = warmupTextState,
         onOpenLogs = onOpenLogs,
         modifier = modifier,
     )
@@ -46,6 +48,7 @@ internal fun MainScreen(
 private fun MainContent(
     connectionText: String,
     rpm: Int,
+    warmupText: String,
     onOpenLogs: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -74,6 +77,13 @@ private fun MainContent(
                 )
             }
         }
+
+        Text(
+            text = warmupText,
+            modifier = Modifier.fillMaxWidth(),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
 
         BoxWithConstraints(
             modifier = Modifier

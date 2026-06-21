@@ -12,6 +12,9 @@ import car.mazda.obd.android.ui.mapper.MainViewMapper
 import car.mazda.obd.android.ui.trip.EngineRpmSample
 import car.mazda.obd.android.ui.trip.TripState
 import car.mazda.obd.android.ui.trip.TripStateManager
+import car.mazda.obd.android.ui.warmup.EngineTemperatureSample
+import car.mazda.obd.android.ui.warmup.WarmupWarning
+import car.mazda.obd.android.ui.warmup.WarmupWarningManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -35,6 +38,7 @@ class MainViewModel : ViewModel() {
 
     private val viewMapper = MainViewMapper()
     private val tripStateManager = TripStateManager(viewModelScope)
+    private val warmupWarningManager = WarmupWarningManager()
 
     private val _mainViewCommands = MutableSharedFlow<MainViewCommand>(extraBufferCapacity = 8)
     val mainViewCommands: SharedFlow<MainViewCommand> = _mainViewCommands
@@ -44,6 +48,15 @@ class MainViewModel : ViewModel() {
 
     private val _rpmState = MutableStateFlow(0)
     val rpmState: StateFlow<Int> = _rpmState
+
+    private val _coolantTempState = MutableStateFlow<Int?>(null)
+    val coolantTempState: StateFlow<Int?> = _coolantTempState
+
+    private val _warmupTextState = MutableStateFlow("Coolant temp: --")
+    val warmupTextState: StateFlow<String> = _warmupTextState
+
+    private var latestRpm = 0
+    private var latestCoolantTemp: Int? = null
 
     private var started = false
 
@@ -60,6 +73,7 @@ class MainViewModel : ViewModel() {
 
         observeSessionState()
         observeEngineRpmState()
+        observeCoolantTemperatureState()
         observeTripState()
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { sessionManager.startSession() }
@@ -125,9 +139,42 @@ class MainViewModel : ViewModel() {
                     AppLogger.log("rpmFlow error: ${t.message}")
                 }
                 .collect { sample ->
-                    _rpmState.value = sample.displayRpm()
+                    latestRpm = sample.displayRpm()
+                    _rpmState.value = latestRpm
                     tripStateManager.onRpmSample(sample)
+                    checkWarmupWarning()
                 }
+        }
+    }
+
+    private fun observeCoolantTemperatureState() {
+        viewModelScope.launch(Dispatchers.IO) {
+            dataReader.coolantTemperatureFlow(periodMs = 1_000)
+                .map(viewMapper::mapEngineCoolantTemperature)
+                .distinctUntilChanged()
+                .catch { t ->
+                    AppLogger.log("coolantTemperatureFlow error: ${t.message}")
+                }
+                .collect { sample ->
+                    latestCoolantTemp = sample.displayTemperature()
+                    _coolantTempState.value = latestCoolantTemp
+                    _warmupTextState.value = sample.warmupText()
+                    checkWarmupWarning()
+                }
+        }
+    }
+
+    private suspend fun checkWarmupWarning() {
+        when (warmupWarningManager.onEngineData(latestRpm, latestCoolantTemp)) {
+            is WarmupWarning.HighRpmWhileCold -> {
+                AppLogger.log("Play warmup warning sound")
+                _mainViewCommands.emit(MainViewCommand.SoundWarmupWarning)
+            }
+            is WarmupWarning.Overheat -> {
+                AppLogger.log("Play overheat warning sound")
+                _mainViewCommands.emit(MainViewCommand.SoundOverheatWarning)
+            }
+            null -> Unit
         }
     }
 
@@ -136,5 +183,26 @@ class MainViewModel : ViewModel() {
             is EngineRpmSample.Value -> rpm
             is EngineRpmSample.NoData,
             is EngineRpmSample.ConnectionError -> 0
+        }
+
+    private fun EngineTemperatureSample.displayTemperature(): Int? =
+        when (this) {
+            is EngineTemperatureSample.Value -> celsius
+            is EngineTemperatureSample.NoData,
+            is EngineTemperatureSample.ConnectionError -> null
+        }
+
+    private fun EngineTemperatureSample.warmupText(): String =
+        when (this) {
+            is EngineTemperatureSample.Value -> {
+                val status = when {
+                    celsius >= 105 -> "Critical temperature"
+                    celsius >= 75 -> "Engine warm"
+                    else -> "Engine warming up"
+                }
+                "Coolant temp: ${celsius}C - $status"
+            }
+            is EngineTemperatureSample.NoData -> "Coolant temp: --"
+            is EngineTemperatureSample.ConnectionError -> "Coolant temp: connection error"
         }
 }

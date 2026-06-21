@@ -5,11 +5,14 @@ import car.mazda.obd.android.elm.entity.OBDData
 import car.mazda.obd.android.elm.entity.OBDResponse
 import car.mazda.obd.android.logs.AppLogger
 import car.mazda.obd.android.ui.trip.EngineRpmSample
+import car.mazda.obd.android.ui.warmup.EngineTemperatureSample
 
 class MainViewMapper {
 
     private companion object {
+        private const val ENGINE_COOLANT_TEMP_PID = "05"
         private const val ENGINE_RPM_PID = "0C"
+        private const val COOLANT_TEMP_OFFSET = 40
         private const val RPM_DIVISOR = 4
     }
 
@@ -35,6 +38,32 @@ class MainViewMapper {
         }
     }
 
+    fun mapEngineCoolantTemperature(response: OBDResponse): EngineTemperatureSample {
+        return when (response) {
+            is OBDResponse.Data -> {
+                mapEngineCoolantTemperature(response.data)
+                    ?.let(EngineTemperatureSample::Value)
+                    ?: EngineTemperatureSample.NoData
+            }
+            is OBDResponse.NoData -> {
+                when (response) {
+                    is OBDResponse.NoData.Empty,
+                    is OBDResponse.NoData.Searching -> EngineTemperatureSample.NoData
+
+                    is OBDResponse.NoData.Unrecognized -> {
+                        AppLogger.log("Unrecognized coolant temperature response: ${response.raw}")
+                        EngineTemperatureSample.NoData
+                    }
+
+                    is OBDResponse.NoData.Error -> {
+                        AppLogger.log("Coolant temperature response error: ${response.throwable}")
+                        EngineTemperatureSample.ConnectionError(response.throwable)
+                    }
+                }
+            }
+        }
+    }
+
     private fun mapEngineRpm(dataList: List<OBDData>): Int {
         val rpmData = dataList.firstOrNull {
             it.canId == CanIds.ENGINE_ECU_RESPONSE && it.pid == ENGINE_RPM_PID
@@ -46,6 +75,18 @@ class MainViewMapper {
             (a * 256 + b) / RPM_DIVISOR
         } catch (t: Throwable) {
             0
+        }
+    }
+
+    private fun mapEngineCoolantTemperature(dataList: List<OBDData>): Int? {
+        val tempData = dataList.firstOrNull {
+            it.canId == CanIds.ENGINE_ECU_RESPONSE && it.pid == ENGINE_COOLANT_TEMP_PID
+        } ?: return null
+
+        return try {
+            tempData.data[0].toInt(16) - COOLANT_TEMP_OFFSET
+        } catch (t: Throwable) {
+            null
         }
     }
 }

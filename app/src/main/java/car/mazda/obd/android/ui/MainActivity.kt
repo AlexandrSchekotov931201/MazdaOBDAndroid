@@ -89,6 +89,8 @@ class MainActivity : ComponentActivity() {
                 when (cmd) {
                     MainViewCommand.SoundGreeting -> speechPlayer.greetingSound()
                     MainViewCommand.SoundGoodbye -> soundPlayer.playPattern(SoundPatterns.TripleLongAlert)
+                    MainViewCommand.SoundWarmupWarning -> soundPlayer.playPattern(SoundPatterns.TripleShortAlert)
+                    MainViewCommand.SoundOverheatWarning -> soundPlayer.playPattern(SoundPatterns.RapidAlert)
                 }
             }
         }
