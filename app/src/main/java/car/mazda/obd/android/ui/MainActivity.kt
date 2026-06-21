@@ -16,11 +16,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import car.mazda.obd.android.ui.command.MainViewCommand
 import car.mazda.obd.android.ui.compose.screen.LogsScreen
 import car.mazda.obd.android.ui.compose.screen.MainScreen
 import car.mazda.obd.android.ui.theme.MazdaOBDAndroidTheme
+import car.mazda.obd.android.ui.utils.sound.SoundPatterns
 import car.mazda.obd.android.ui.utils.sound.SoundPlayer
 import car.mazda.obd.android.ui.utils.sound.SpeechPlayer
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -48,8 +52,6 @@ class MainActivity : ComponentActivity() {
                         "main" -> MainScreen(
                             modifier = Modifier.padding(innerPadding),
                             viewModel = viewModel,
-                            speechPlayer = speechPlayer,
-                            soundPlayer = soundPlayer,
                             onOpenLogs = { screen = "logs" }
                         )
 
@@ -62,6 +64,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        observeSoundCommands()
         viewModel.onCreate()
     }
 
@@ -78,6 +81,17 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         soundPlayer.release()
         super.onDestroy()
+    }
+
+    private fun observeSoundCommands() {
+        lifecycleScope.launch {
+            viewModel.mainViewCommands.collect { cmd ->
+                when (cmd) {
+                    MainViewCommand.SoundGreeting -> speechPlayer.greetingSound()
+                    MainViewCommand.SoundGoodbye -> soundPlayer.playPattern(SoundPatterns.TripleLongAlert)
+                }
+            }
+        }
     }
 
     private fun requestWifiPermission() {

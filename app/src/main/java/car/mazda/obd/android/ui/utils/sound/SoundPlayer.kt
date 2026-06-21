@@ -2,6 +2,7 @@ package car.mazda.obd.android.ui.utils.sound
 
 import android.media.AudioManager
 import android.media.ToneGenerator
+import car.mazda.obd.android.logs.AppLogger
 import kotlinx.coroutines.delay
 
 class SoundPlayer(
@@ -13,10 +14,17 @@ class SoundPlayer(
     private val toneGenerator = ToneGenerator(streamType, volume)
 
     suspend fun playPattern(pattern: BeepPattern) {
+        AppLogger.log("Beep pattern started")
         repeat(pattern.count) {
-            toneGenerator.startTone(toneType, pattern.toneDurationMs)
+            val started = toneGenerator.startTone(toneType, pattern.toneDurationMs)
+            if (!started) {
+                AppLogger.log("Beep tone failed to start")
+            }
+            delay(pattern.toneDurationMs.toLong())
+            toneGenerator.stopTone()
             delay(pattern.pauseMs)
         }
+        AppLogger.log("Beep pattern finished")
     }
 
     fun release() {

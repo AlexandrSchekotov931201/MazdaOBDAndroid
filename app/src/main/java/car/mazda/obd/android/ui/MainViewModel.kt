@@ -36,7 +36,7 @@ class MainViewModel : ViewModel() {
     private val viewMapper = MainViewMapper()
     private val tripStateManager = TripStateManager(viewModelScope)
 
-    private val _mainViewCommands = MutableSharedFlow<MainViewCommand>()
+    private val _mainViewCommands = MutableSharedFlow<MainViewCommand>(extraBufferCapacity = 8)
     val mainViewCommands: SharedFlow<MainViewCommand> = _mainViewCommands
 
     private val _connectionTextState = MutableStateFlow("Connecting to adapter...")

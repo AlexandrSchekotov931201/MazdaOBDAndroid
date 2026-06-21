@@ -16,7 +16,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,36 +23,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import car.mazda.obd.android.ui.MainViewModel
-import car.mazda.obd.android.ui.command.MainViewCommand
 import car.mazda.obd.android.ui.compose.MazdaStyleTachometer
-import car.mazda.obd.android.ui.utils.sound.SoundPatterns
-import car.mazda.obd.android.ui.utils.sound.SoundPlayer
-import car.mazda.obd.android.ui.utils.sound.SpeechPlayer
 
 @Composable
 internal fun MainScreen(
     viewModel: MainViewModel,
-    speechPlayer: SpeechPlayer,
-    soundPlayer: SoundPlayer,
     onOpenLogs: () -> Unit,
     modifier: Modifier
 ) {
     val connectionTextState by viewModel.connectionTextState.collectAsStateWithLifecycle()
     val rpmState by viewModel.rpmState.collectAsStateWithLifecycle()
-
-    LaunchedEffect(Unit) {
-        viewModel.mainViewCommands.collect { cmd ->
-            when (cmd) {
-                MainViewCommand.SoundGreeting -> {
-                    speechPlayer.greetingSound()
-                }
-
-                MainViewCommand.SoundGoodbye -> {
-                    soundPlayer.playPattern(SoundPatterns.TripleLongAlert)
-                }
-            }
-        }
-    }
 
     MainContent(
         connectionText = connectionTextState,

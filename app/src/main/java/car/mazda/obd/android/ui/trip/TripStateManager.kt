@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 class TripStateManager(
     private val scope: CoroutineScope,
     private val engineOffDelayMs: Long = 5000L,
+    private val connectionLostDelayMs: Long = 10000L,
 ) {
     private val _tripState = MutableStateFlow<TripState>(TripState.Idle)
     val tripState: StateFlow<TripState> = _tripState
@@ -32,8 +33,15 @@ class TripStateManager(
     }
 
     private fun onConnectionProblem(t: Throwable) {
-        if (_tripState.value is TripState.Active) {
-            AppLogger.log("Trip keeps active during connection problem: ${t::class.simpleName}")
+        if (_tripState.value !is TripState.Active) return
+        if (finishJob?.isActive == true) return
+
+        _tripState.value = TripState.Finishing
+        AppLogger.log("Trip finish candidate: connection problem (${t::class.simpleName})")
+        finishJob = scope.launch {
+            delay(connectionLostDelayMs)
+            _tripState.value = TripState.Idle
+            AppLogger.log("Trip finished")
         }
     }
 
@@ -59,7 +67,7 @@ class TripStateManager(
         if (finishJob?.isActive == true) return
 
         _tripState.value = TripState.Finishing
-        AppLogger.log("Trip finish candidate")
+        AppLogger.log("Trip finish candidate: engine stopped")
         finishJob = scope.launch {
             delay(engineOffDelayMs)
             _tripState.value = TripState.Idle
