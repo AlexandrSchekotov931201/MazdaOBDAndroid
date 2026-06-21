@@ -82,6 +82,7 @@ HTML = """
     .hint { color: #666; font-size: 12px; }
     .ok { color: #0a7; font-weight: bold; }
     .warn { color: #b00; font-weight: bold; }
+    .preset { margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -120,6 +121,25 @@ HTML = """
       <span id="coolantTempVal"></span>
     </div>
     <div class="row hint">Слайдер обновляет UI сразу. На сервер RPM отправляется при отпускании (onchange).</div>
+
+    <hr/>
+
+    <div class="row">
+      <b>Warmup / temperature warning tests:</b>
+      <div class="hint">
+        App rule: coolant below 75 C + RPM above 2000 should beep once.
+        Coolant 105 C or higher should trigger critical warning at any RPM.
+      </div>
+    </div>
+    <div class="row preset">
+      <button onclick="applyWarmupPreset('cold_idle')">Cold idle: no warning</button>
+      <button onclick="applyWarmupPreset('cold_high_rpm')">Cold + high RPM: warning</button>
+      <button onclick="applyWarmupPreset('warm_high_rpm')">Warm + high RPM: no warning</button>
+      <button onclick="applyWarmupPreset('overheat_idle')">Overheat idle: critical</button>
+    </div>
+    <div class="row hint">
+      Presets keep ignition ON and update RPM + coolant together. The Android warmup warning has a 20s cooldown.
+    </div>
 
     <hr/>
 
@@ -327,6 +347,27 @@ async function commitCoolantTemp(v) {
   });
 }
 
+async function applyWarmupPreset(name) {
+  const presets = {
+    cold_idle: {ignition: true, rpm: 850, coolant_temp: 40},
+    cold_high_rpm: {ignition: true, rpm: 2500, coolant_temp: 40},
+    warm_high_rpm: {ignition: true, rpm: 2500, coolant_temp: 80},
+    overheat_idle: {ignition: true, rpm: 900, coolant_temp: 110},
+  };
+
+  const preset = presets[name];
+  if (!preset) return;
+
+  localState = {...localState, ...preset};
+  applyStateToUi(localState);
+
+  await fetch('/api/warmup_preset', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(preset)
+  });
+}
+
 async function setMute(v) {
   localState.mute_responses = v;
   applyStateToUi(localState);
@@ -495,6 +536,23 @@ def set_coolant_temp():
     temp = max(-20, min(130, temp))
     with state_lock:
         state["coolant_temp"] = temp
+    notify_state()
+    return jsonify(ok=True)
+
+@app.post("/api/warmup_preset")
+def set_warmup_preset():
+    data = request.get_json(force=True)
+    rpm = int(data.get("rpm", 0))
+    rpm = max(0, min(8000, rpm))
+    temp = int(data.get("coolant_temp", 0))
+    temp = max(-20, min(130, temp))
+    ignition = bool(data.get("ignition", True))
+
+    with state_lock:
+        state["ignition"] = ignition
+        state["rpm"] = rpm if ignition else 0
+        state["coolant_temp"] = temp
+
     notify_state()
     return jsonify(ok=True)
 
