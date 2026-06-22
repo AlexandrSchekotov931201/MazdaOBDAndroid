@@ -8,9 +8,19 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.unit.dp
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -45,20 +55,55 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             MazdaOBDAndroidTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    var screen by rememberSaveable { mutableStateOf("main") }
+                val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+                val scope = rememberCoroutineScope()
+                var screen by rememberSaveable { mutableStateOf("main") }
 
-                    when (screen) {
-                        "main" -> MainScreen(
-                            modifier = Modifier.padding(innerPadding),
-                            viewModel = viewModel,
-                            onOpenLogs = { screen = "logs" }
-                        )
+                ModalNavigationDrawer(
+                    drawerState = drawerState,
+                    drawerContent = {
+                        ModalDrawerSheet(
+                            modifier = Modifier
+                                .width(320.dp)
+                                .statusBarsPadding()
+                        ) {
+                            NavigationDrawerItem(
+                                label = { Text("Dashboard") },
+                                selected = screen == "main",
+                                onClick = {
+                                    screen = "main"
+                                    scope.launch { drawerState.close() }
+                                }
+                            )
+                            NavigationDrawerItem(
+                                label = { Text("Logs") },
+                                selected = screen == "logs",
+                                onClick = {
+                                    screen = "logs"
+                                    scope.launch { drawerState.close() }
+                                }
+                            )
+                        }
+                    }
+                ) {
+                    Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                        val openDrawer = {
+                            scope.launch { drawerState.open() }
+                            Unit
+                        }
 
-                        "logs" -> LogsScreen(
-                            modifier = Modifier.padding(innerPadding),
-                            onBack = { screen = "main" }
-                        )
+                        when (screen) {
+                            "main" -> MainScreen(
+                                modifier = Modifier.padding(innerPadding),
+                                viewModel = viewModel,
+                                onOpenMenu = openDrawer
+                            )
+
+                            "logs" -> LogsScreen(
+                                modifier = Modifier.padding(innerPadding),
+                                onOpenMenu = openDrawer
+                            )
+                        }
                     }
                 }
             }
