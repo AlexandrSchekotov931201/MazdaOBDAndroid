@@ -83,12 +83,13 @@ private fun MainContent(
             warmupText = engineText,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp)
+                .padding(horizontal = 16.dp)
         )
 
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(horizontal = 16.dp)
                 .weight(1f),
             contentAlignment = Alignment.Center
         ) {

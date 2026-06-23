@@ -35,7 +35,7 @@ fun LogsScreen(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(8.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
             items(logs) { line ->
                 Text(
