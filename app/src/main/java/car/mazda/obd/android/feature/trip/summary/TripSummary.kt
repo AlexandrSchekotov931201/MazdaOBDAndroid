@@ -5,7 +5,7 @@ data class TripSummary(
     val startedAtMs: Long,
     val finishedAtMs: Long,
     val maxRpm: Int,
-    val maxCoolantTempCelsius: Int?,
+    val maxEngineTempCelsius: Int?,
 ) {
     val durationMs: Long
         get() = (finishedAtMs - startedAtMs).coerceAtLeast(0L)
@@ -14,7 +14,7 @@ data class TripSummary(
 data class ActiveTripSummary(
     val startedAtMs: Long,
     val maxRpm: Int,
-    val maxCoolantTempCelsius: Int?,
+    val maxEngineTempCelsius: Int?,
 ) {
     fun durationMs(nowMs: Long): Long =
         (nowMs - startedAtMs).coerceAtLeast(0L)

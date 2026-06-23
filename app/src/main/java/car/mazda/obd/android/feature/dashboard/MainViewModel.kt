@@ -56,17 +56,17 @@ class MainViewModel(
     private val _rpmState = MutableStateFlow(0)
     val rpmState: StateFlow<Int> = _rpmState
 
-    private val _coolantTempState = MutableStateFlow<Int?>(null)
-    val coolantTempState: StateFlow<Int?> = _coolantTempState
+    private val _oilTempState = MutableStateFlow<Int?>(null)
+    val oilTempState: StateFlow<Int?> = _oilTempState
 
-    private val _warmupTextState = MutableStateFlow("Coolant temp: --")
+    private val _warmupTextState = MutableStateFlow("Oil temp: --")
     val warmupTextState: StateFlow<String> = _warmupTextState
 
     val activeTripSummaryState: StateFlow<ActiveTripSummary?> = tripSummaryTracker.activeTrip
     val recentTripSummariesState: StateFlow<List<TripSummary>> = tripSummaryRepository.recentTrips
 
     private var latestRpm = 0
-    private var latestCoolantTemp: Int? = null
+    private var latestOilTemp: Int? = null
 
     private var started = false
 
@@ -83,7 +83,7 @@ class MainViewModel(
 
         observeSessionState()
         observeEngineRpmState()
-        observeCoolantTemperatureState()
+        observeOilTemperatureState()
         observeTripState()
         viewModelScope.launch {
             tripSummaryRepository.refreshRecentTrips()
@@ -165,17 +165,17 @@ class MainViewModel(
         }
     }
 
-    private fun observeCoolantTemperatureState() {
+    private fun observeOilTemperatureState() {
         viewModelScope.launch(Dispatchers.IO) {
-            dataReader.coolantTemperatureFlow(periodMs = 1_000)
-                .map(viewMapper::mapEngineCoolantTemperature)
+            dataReader.oilTemperatureFlow(periodMs = 1_000)
+                .map(viewMapper::mapEngineOilTemperature)
                 .catch { t ->
-                    AppLogger.log("coolantTemperatureFlow error: ${t.message}")
+                    AppLogger.log("oilTemperatureFlow error: ${t.message}")
                 }
                 .collect { sample ->
-                    latestCoolantTemp = sample.displayTemperature()
-                    _coolantTempState.value = latestCoolantTemp
-                    tripSummaryTracker.onCoolantTemperatureChanged(latestCoolantTemp)
+                    latestOilTemp = sample.displayTemperature()
+                    _oilTempState.value = latestOilTemp
+                    tripSummaryTracker.onEngineTemperatureChanged(latestOilTemp)
                     _warmupTextState.value = sample.warmupText()
                     checkWarmupWarning()
                 }
@@ -183,7 +183,7 @@ class MainViewModel(
     }
 
     private suspend fun checkWarmupWarning() {
-        val warning = warmupWarningManager.onEngineData(latestRpm, latestCoolantTemp)
+        val warning = warmupWarningManager.onEngineData(latestRpm, latestOilTemp)
 
         when (warning) {
             is WarmupWarning.HighRpmWhileCold -> {
@@ -220,9 +220,9 @@ class MainViewModel(
                     celsius >= 75 -> "Engine warm"
                     else -> "Engine warming up"
                 }
-                "Coolant temp: ${celsius}C - $status"
+                "Oil temp: ${celsius}C - $status"
             }
-            is EngineTemperatureSample.NoData -> "Coolant temp: --"
-            is EngineTemperatureSample.ConnectionError -> "Coolant temp: connection error"
+            is EngineTemperatureSample.NoData -> "Oil temp: --"
+            is EngineTemperatureSample.ConnectionError -> "Oil temp: connection error"
         }
 }

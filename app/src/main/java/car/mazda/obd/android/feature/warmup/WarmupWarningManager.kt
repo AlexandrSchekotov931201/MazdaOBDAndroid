@@ -13,8 +13,8 @@ class WarmupWarningManager(
     private var lastWarmupWarningAt = 0L
     private var lastOverheatWarningAt = 0L
 
-    fun onEngineData(rpm: Int, coolantTempCelsius: Int?): WarmupWarning? {
-        val temp = coolantTempCelsius ?: run {
+    fun onEngineData(rpm: Int, oilTempCelsius: Int?): WarmupWarning? {
+        val temp = oilTempCelsius ?: run {
             resetWarnings()
             return null
         }
@@ -37,7 +37,7 @@ class WarmupWarningManager(
                 repeatIntervalMs = warmupRepeatIntervalMs,
                 warning = WarmupWarning.HighRpmWhileCold(
                     rpm = rpm,
-                    coolantTempCelsius = temp,
+                    oilTempCelsius = temp,
                     rpmLimit = warmupRpmLimit,
                     readyTempCelsius = warmupReadyTempCelsius,
                 ),
@@ -71,16 +71,16 @@ class WarmupWarningManager(
 sealed class WarmupWarning(val logMessage: String) {
     data class HighRpmWhileCold(
         val rpm: Int,
-        val coolantTempCelsius: Int,
+        val oilTempCelsius: Int,
         val rpmLimit: Int,
         val readyTempCelsius: Int,
     ) : WarmupWarning(
-        "Warmup warning: rpm=$rpm above $rpmLimit while coolant=${coolantTempCelsius}C, ready at ${readyTempCelsius}C"
+        "Warmup warning: rpm=$rpm above $rpmLimit while oil=${oilTempCelsius}C, ready at ${readyTempCelsius}C"
     )
 
     data class Overheat(
-        val coolantTempCelsius: Int,
+        val oilTempCelsius: Int,
     ) : WarmupWarning(
-        "Critical temperature warning: coolant=${coolantTempCelsius}C"
+        "Critical temperature warning: oil=${oilTempCelsius}C"
     )
 }

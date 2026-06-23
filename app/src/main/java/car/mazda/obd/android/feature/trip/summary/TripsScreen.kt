@@ -162,7 +162,7 @@ private fun ActiveTripCard(
             metrics = listOf(
                 "Duration" to activeTrip.durationMs(nowMs).formatDuration(),
                 "Max RPM" to activeTrip.maxRpm.toString(),
-                "Max temp" to activeTrip.maxCoolantTempCelsius.formatTemp(),
+                "Max oil temp" to activeTrip.maxEngineTempCelsius.formatTemp(),
             )
         )
     }
@@ -187,7 +187,7 @@ private fun TripSummaryCard(
             metrics = listOf(
                 "Duration" to trip.durationMs.formatDuration(),
                 "Max RPM" to trip.maxRpm.toString(),
-                "Max temp" to trip.maxCoolantTempCelsius.formatTemp(),
+                "Max oil temp" to trip.maxEngineTempCelsius.formatTemp(),
             )
         )
     }

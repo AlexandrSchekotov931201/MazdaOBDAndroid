@@ -17,6 +17,7 @@ state = {
     "ignition": True,
     "rpm": 850,
     "coolant_temp": 40,
+    "oil_temp": 35,
 
     # Connection/testing controls:
     "mute_responses": False,      # if True -> do not send any replies (simulate "adapter stopped responding")
@@ -100,6 +101,9 @@ HTML = """
     <div class="row">
       Coolant temp: <b id="coolantTemp">?</b> C
     </div>
+    <div class="row">
+      Oil temp: <b id="oilTemp">?</b> C
+    </div>
 
     <div class="row">
       <button onclick="setIgn(true)">Ignition ON</button>
@@ -120,6 +124,12 @@ HTML = """
              onchange="commitCoolantTemp(this.value)">
       <span id="coolantTempVal"></span>
     </div>
+    <div class="row">
+      <input id="oilTempRange" type="range" min="-20" max="150" step="1"
+             oninput="setOilTempLocal(this.value)"
+             onchange="commitOilTemp(this.value)">
+      <span id="oilTempVal"></span>
+    </div>
     <div class="row hint">Слайдер обновляет UI сразу. На сервер RPM отправляется при отпускании (onchange).</div>
 
     <hr/>
@@ -127,8 +137,8 @@ HTML = """
     <div class="row">
       <b>Warmup / temperature warning tests:</b>
       <div class="hint">
-        App rule: coolant below 75 C + RPM above 2000 should keep beeping while the condition is active.
-        Coolant 105 C or higher should keep playing the critical warning at any RPM.
+        App rule: oil below 75 C + RPM above 2000 should keep beeping while the condition is active.
+        Oil 105 C or higher should keep playing the critical warning at any RPM.
       </div>
     </div>
     <div class="row preset">
@@ -138,7 +148,7 @@ HTML = """
       <button onclick="applyWarmupPreset('overheat_idle')">Overheat idle: critical</button>
     </div>
     <div class="row hint">
-      Presets keep ignition ON and update RPM + coolant together. Drop RPM or temperature back to normal to stop the repeated warning.
+      Presets keep ignition ON and update RPM + oil temperature together. Drop RPM or temperature back to normal to stop the repeated warning.
     </div>
 
     <hr/>
@@ -235,6 +245,7 @@ function applyStateToUi(s) {
   document.getElementById('ign').textContent = s.ignition ? 'ON' : 'OFF';
   document.getElementById('rpm').textContent = s.rpm;
   document.getElementById('coolantTemp').textContent = s.coolant_temp;
+  document.getElementById('oilTemp').textContent = s.oil_temp;
 
   const slider = document.getElementById('rpmRange');
   slider.value = s.rpm;
@@ -243,6 +254,10 @@ function applyStateToUi(s) {
   const tempSlider = document.getElementById('coolantTempRange');
   tempSlider.value = s.coolant_temp;
   document.getElementById('coolantTempVal').textContent = s.coolant_temp + " C";
+
+  const oilTempSlider = document.getElementById('oilTempRange');
+  oilTempSlider.value = s.oil_temp;
+  document.getElementById('oilTempVal').textContent = s.oil_temp + " C";
 
   document.getElementById('muteChk').checked = !!s.mute_responses;
   document.getElementById('dropModeChk').checked = !!s.drop_connections;
@@ -347,12 +362,26 @@ async function commitCoolantTemp(v) {
   });
 }
 
+function setOilTempLocal(v) {
+  const temp = parseInt(v);
+  localState.oil_temp = temp;
+  applyStateToUi(localState);
+}
+
+async function commitOilTemp(v) {
+  await fetch('/api/oil_temp', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({oil_temp: parseInt(v)})
+  });
+}
+
 async function applyWarmupPreset(name) {
   const presets = {
-    cold_idle: {ignition: true, rpm: 850, coolant_temp: 40},
-    cold_high_rpm: {ignition: true, rpm: 2500, coolant_temp: 40},
-    warm_high_rpm: {ignition: true, rpm: 2500, coolant_temp: 80},
-    overheat_idle: {ignition: true, rpm: 900, coolant_temp: 110},
+    cold_idle: {ignition: true, rpm: 850, oil_temp: 35},
+    cold_high_rpm: {ignition: true, rpm: 2500, oil_temp: 35},
+    warm_high_rpm: {ignition: true, rpm: 2500, oil_temp: 80},
+    overheat_idle: {ignition: true, rpm: 900, oil_temp: 110},
   };
 
   const preset = presets[name];
@@ -539,19 +568,29 @@ def set_coolant_temp():
     notify_state()
     return jsonify(ok=True)
 
+@app.post("/api/oil_temp")
+def set_oil_temp():
+    data = request.get_json(force=True)
+    temp = int(data.get("oil_temp", 0))
+    temp = max(-20, min(150, temp))
+    with state_lock:
+        state["oil_temp"] = temp
+    notify_state()
+    return jsonify(ok=True)
+
 @app.post("/api/warmup_preset")
 def set_warmup_preset():
     data = request.get_json(force=True)
     rpm = int(data.get("rpm", 0))
     rpm = max(0, min(8000, rpm))
-    temp = int(data.get("coolant_temp", 0))
-    temp = max(-20, min(130, temp))
+    oil_temp = int(data.get("oil_temp", 0))
+    oil_temp = max(-20, min(150, oil_temp))
     ignition = bool(data.get("ignition", True))
 
     with state_lock:
         state["ignition"] = ignition
         state["rpm"] = rpm if ignition else 0
-        state["coolant_temp"] = temp
+        state["oil_temp"] = oil_temp
 
     notify_state()
     return jsonify(ok=True)
@@ -815,6 +854,18 @@ def handle_command(cmd: str) -> str:
 
         A = max(0, min(255, int(coolant_temp) + 40))
         return f"7E8 03 41 05 {A:02X}"
+
+    # Engine oil temperature request (01 5C), A - 40
+    if c == "015C":
+        with state_lock:
+            ign = state["ignition"]
+            oil_temp = state["oil_temp"]
+
+        if not ign:
+            return "NO DATA"
+
+        A = max(0, min(255, int(oil_temp) + 40))
+        return f"7E8 03 41 5C {A:02X}"
 
     return "NO DATA"
 

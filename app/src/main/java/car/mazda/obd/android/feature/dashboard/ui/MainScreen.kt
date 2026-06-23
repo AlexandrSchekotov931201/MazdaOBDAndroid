@@ -36,13 +36,13 @@ internal fun MainScreen(
 ) {
     val connectionTextState by viewModel.connectionTextState.collectAsStateWithLifecycle()
     val rpmState by viewModel.rpmState.collectAsStateWithLifecycle()
-    val coolantTempState by viewModel.coolantTempState.collectAsStateWithLifecycle()
+    val oilTempState by viewModel.oilTempState.collectAsStateWithLifecycle()
     val warmupTextState by viewModel.warmupTextState.collectAsStateWithLifecycle()
 
     MainContent(
         connectionText = connectionTextState,
         rpm = rpmState,
-        coolantTemp = coolantTempState,
+        oilTemp = oilTempState,
         warmupText = warmupTextState,
         onOpenMenu = onOpenMenu,
         modifier = modifier,
@@ -53,21 +53,21 @@ internal fun MainScreen(
 private fun MainContent(
     connectionText: String,
     rpm: Int,
-    coolantTemp: Int?,
+    oilTemp: Int?,
     warmupText: String,
     onOpenMenu: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val connectionStatus = connectionText.toConnectionStatus()
     val engineStatus = if (connectionStatus == ConnectionStatus.Ready) {
-        coolantTemp.toEngineStatus()
+        oilTemp.toEngineStatus()
     } else {
         EngineStatus.NoData
     }
     val engineText = if (connectionStatus == ConnectionStatus.Ready) {
         warmupText
     } else {
-        "Coolant temp: --"
+        "Oil temp: --"
     }
 
     Column(
