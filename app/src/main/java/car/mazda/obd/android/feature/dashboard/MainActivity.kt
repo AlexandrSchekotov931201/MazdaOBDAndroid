@@ -8,13 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.ui.unit.dp
-import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationDrawerItem
-import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Scaffold
@@ -25,11 +19,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.app.ActivityCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import car.mazda.obd.android.feature.dashboard.command.MainViewCommand
 import car.mazda.obd.android.feature.logs.LogsScreen
 import car.mazda.obd.android.feature.dashboard.ui.MainScreen
+import car.mazda.obd.android.ui.AppDrawer
+import car.mazda.obd.android.ui.AppDrawerDestination
 import car.mazda.obd.android.ui.theme.MazdaOBDAndroidTheme
 import car.mazda.obd.android.core.sound.SoundPatterns
 import car.mazda.obd.android.core.sound.SoundPlayer
@@ -58,32 +55,26 @@ class MainActivity : ComponentActivity() {
                 val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
                 val scope = rememberCoroutineScope()
                 var screen by rememberSaveable { mutableStateOf("main") }
+                val connectionText by viewModel.connectionTextState.collectAsStateWithLifecycle()
+                val selectedDestination = when (screen) {
+                    "logs" -> AppDrawerDestination.Logs
+                    else -> AppDrawerDestination.Dashboard
+                }
 
                 ModalNavigationDrawer(
                     drawerState = drawerState,
                     drawerContent = {
-                        ModalDrawerSheet(
-                            modifier = Modifier
-                                .width(320.dp)
-                                .statusBarsPadding()
-                        ) {
-                            NavigationDrawerItem(
-                                label = { Text("Dashboard") },
-                                selected = screen == "main",
-                                onClick = {
-                                    screen = "main"
-                                    scope.launch { drawerState.close() }
+                        AppDrawer(
+                            selectedDestination = selectedDestination,
+                            isReady = connectionText.contains("ready", ignoreCase = true),
+                            onSelectDestination = { destination ->
+                                screen = when (destination) {
+                                    AppDrawerDestination.Dashboard -> "main"
+                                    AppDrawerDestination.Logs -> "logs"
                                 }
-                            )
-                            NavigationDrawerItem(
-                                label = { Text("Logs") },
-                                selected = screen == "logs",
-                                onClick = {
-                                    screen = "logs"
-                                    scope.launch { drawerState.close() }
-                                }
-                            )
-                        }
+                                scope.launch { drawerState.close() }
+                            }
+                        )
                     }
                 ) {
                     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
