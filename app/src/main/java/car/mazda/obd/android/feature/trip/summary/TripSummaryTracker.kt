@@ -17,7 +17,7 @@ class TripSummaryTracker(
                     _activeTrip.value = ActiveTripSummary(
                         startedAtMs = clock(),
                         maxRpm = 0,
-                        maxCoolantTempCelsius = null,
+                        maxEngineTempCelsius = null,
                     )
                 }
                 null
@@ -33,12 +33,12 @@ class TripSummaryTracker(
         }
     }
 
-    fun onCoolantTemperatureChanged(celsius: Int?) {
+    fun onEngineTemperatureChanged(celsius: Int?) {
         val temp = celsius ?: return
         updateActiveTrip { current ->
             current.copy(
-                maxCoolantTempCelsius = maxOfNullable(
-                    current.maxCoolantTempCelsius,
+                maxEngineTempCelsius = maxOfNullable(
+                    current.maxEngineTempCelsius,
                     temp,
                 )
             )
@@ -56,7 +56,7 @@ class TripSummaryTracker(
             startedAtMs = active.startedAtMs,
             finishedAtMs = clock(),
             maxRpm = active.maxRpm,
-            maxCoolantTempCelsius = active.maxCoolantTempCelsius,
+            maxEngineTempCelsius = active.maxEngineTempCelsius,
         )
         _activeTrip.value = null
         return finished

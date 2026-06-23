@@ -29,9 +29,9 @@ class TripSummaryTrackerTest {
         tracker.onRpmChanged(850)
         tracker.onRpmChanged(3_200)
         tracker.onRpmChanged(2_100)
-        tracker.onCoolantTemperatureChanged(40)
-        tracker.onCoolantTemperatureChanged(89)
-        tracker.onCoolantTemperatureChanged(75)
+        tracker.onEngineTemperatureChanged(40)
+        tracker.onEngineTemperatureChanged(89)
+        tracker.onEngineTemperatureChanged(75)
 
         now = 121_000L
         val summary = tracker.onTripStateChanged(TripState.Idle)
@@ -41,7 +41,7 @@ class TripSummaryTrackerTest {
         assertEquals(121_000L, summary?.finishedAtMs)
         assertEquals(120_000L, summary?.durationMs)
         assertEquals(3_200, summary?.maxRpm)
-        assertEquals(89, summary?.maxCoolantTempCelsius)
+        assertEquals(89, summary?.maxEngineTempCelsius)
         assertNull(tracker.activeTrip.value)
     }
 

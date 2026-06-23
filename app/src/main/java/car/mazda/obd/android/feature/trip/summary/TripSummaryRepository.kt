@@ -27,12 +27,12 @@ class TripSummaryRepository(context: Context) {
                     put(TripSummaryDatabaseHelper.COLUMN_STARTED_AT_MS, summary.startedAtMs)
                     put(TripSummaryDatabaseHelper.COLUMN_FINISHED_AT_MS, summary.finishedAtMs)
                     put(TripSummaryDatabaseHelper.COLUMN_MAX_RPM, summary.maxRpm)
-                    if (summary.maxCoolantTempCelsius == null) {
+                    if (summary.maxEngineTempCelsius == null) {
                         putNull(TripSummaryDatabaseHelper.COLUMN_MAX_COOLANT_TEMP_CELSIUS)
                     } else {
                         put(
                             TripSummaryDatabaseHelper.COLUMN_MAX_COOLANT_TEMP_CELSIUS,
-                            summary.maxCoolantTempCelsius,
+                            summary.maxEngineTempCelsius,
                         )
                     }
                 }
@@ -67,7 +67,7 @@ class TripSummaryRepository(context: Context) {
             startedAtMs = getLong(columnIndex(TripSummaryDatabaseHelper.COLUMN_STARTED_AT_MS)),
             finishedAtMs = getLong(columnIndex(TripSummaryDatabaseHelper.COLUMN_FINISHED_AT_MS)),
             maxRpm = getInt(columnIndex(TripSummaryDatabaseHelper.COLUMN_MAX_RPM)),
-            maxCoolantTempCelsius = nullableInt(
+            maxEngineTempCelsius = nullableInt(
                 columnIndex(TripSummaryDatabaseHelper.COLUMN_MAX_COOLANT_TEMP_CELSIUS),
             ),
         )
