@@ -1,10 +1,8 @@
 package car.mazda.obd.android.feature.dashboard.ui
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -12,14 +10,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -34,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import car.mazda.obd.android.feature.dashboard.MainViewModel
 import car.mazda.obd.android.feature.dashboard.ui.MazdaStyleTachometer
+import car.mazda.obd.android.ui.AppToolbar
 
 @Composable
 internal fun MainScreen(
@@ -66,35 +59,31 @@ private fun MainContent(
     modifier: Modifier = Modifier
 ) {
     val connectionStatus = connectionText.toConnectionStatus()
-    val engineStatus = coolantTemp.toEngineStatus()
+    val engineStatus = if (connectionStatus == ConnectionStatus.Ready) {
+        coolantTemp.toEngineStatus()
+    } else {
+        EngineStatus.NoData
+    }
+    val engineText = if (connectionStatus == ConnectionStatus.Ready) {
+        warmupText
+    } else {
+        "Coolant temp: --"
+    }
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 16.dp),
+        modifier = modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            IconButton(onClick = onOpenMenu) {
-                Icon(
-                    imageVector = Icons.Filled.Menu,
-                    contentDescription = "Open navigation menu"
-                )
-            }
-
-            Box(modifier = Modifier.weight(1f))
-
+        AppToolbar(onOpenMenu = onOpenMenu) {
             ConnectionIndicator(status = connectionStatus)
         }
 
         EngineStatusBanner(
             status = engineStatus,
-            warmupText = warmupText,
-            modifier = Modifier.fillMaxWidth()
+            warmupText = engineText,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
         )
 
         BoxWithConstraints(
@@ -117,10 +106,6 @@ private fun MainContent(
                         .alpha(if (connectionStatus == ConnectionStatus.Ready) 1f else 0.42f),
                     rpm = rpm,
                 )
-
-                if (connectionStatus != ConnectionStatus.Ready) {
-                    ConnectionStateCard(status = connectionStatus)
-                }
             }
         }
     }
@@ -183,52 +168,16 @@ private fun EngineStatusBanner(
     }
 }
 
-@Composable
-private fun ConnectionStateCard(status: ConnectionStatus) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-            contentColor = MaterialTheme.colorScheme.onSurface
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = status.title,
-                style = MaterialTheme.typography.titleMedium
-            )
-            Text(
-                text = status.description,
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-    }
-}
-
 private enum class ConnectionStatus(
     val shortLabel: String,
-    val title: String,
-    val description: String,
     val color: Color
 ) {
-    Connecting(
-        shortLabel = "Connecting",
-        title = "Connecting to OBD",
-        description = "Waiting for adapter",
-        color = Color(0xFFFFB300)
-    ),
     Ready(
         shortLabel = "Ready",
-        title = "OBD ready",
-        description = "Live engine data",
         color = Color(0xFF2E7D32)
     ),
     Error(
         shortLabel = "Offline",
-        title = "Connection lost",
-        description = "Check adapter or Wi-Fi",
         color = Color(0xFFC62828)
     )
 }
@@ -263,8 +212,7 @@ private enum class EngineStatus(
 private fun String.toConnectionStatus(): ConnectionStatus =
     when {
         contains("ready", ignoreCase = true) -> ConnectionStatus.Ready
-        contains("error", ignoreCase = true) -> ConnectionStatus.Error
-        else -> ConnectionStatus.Connecting
+        else -> ConnectionStatus.Error
     }
 
 private fun Int?.toEngineStatus(): EngineStatus =
