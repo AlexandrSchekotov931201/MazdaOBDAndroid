@@ -12,6 +12,10 @@ import car.mazda.obd.android.feature.dashboard.mapper.MainViewMapper
 import car.mazda.obd.android.feature.trip.EngineRpmSample
 import car.mazda.obd.android.feature.trip.TripState
 import car.mazda.obd.android.feature.trip.TripStateManager
+import car.mazda.obd.android.feature.trip.summary.ActiveTripSummary
+import car.mazda.obd.android.feature.trip.summary.TripSummary
+import car.mazda.obd.android.feature.trip.summary.TripSummaryRepository
+import car.mazda.obd.android.feature.trip.summary.TripSummaryTracker
 import car.mazda.obd.android.feature.warmup.EngineTemperatureSample
 import car.mazda.obd.android.feature.warmup.WarmupWarning
 import car.mazda.obd.android.feature.warmup.WarmupWarningManager
@@ -27,7 +31,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
-class MainViewModel : ViewModel() {
+class MainViewModel(
+    private val tripSummaryRepository: TripSummaryRepository,
+) : ViewModel() {
 
     private val client = OBDClient()
     private val sessionManager = OBDSessionManager(client, viewModelScope)
@@ -39,6 +45,7 @@ class MainViewModel : ViewModel() {
     private val viewMapper = MainViewMapper()
     private val tripStateManager = TripStateManager(viewModelScope)
     private val warmupWarningManager = WarmupWarningManager()
+    private val tripSummaryTracker = TripSummaryTracker()
 
     private val _mainViewCommands = MutableSharedFlow<MainViewCommand>(extraBufferCapacity = 8)
     val mainViewCommands: SharedFlow<MainViewCommand> = _mainViewCommands
@@ -54,6 +61,9 @@ class MainViewModel : ViewModel() {
 
     private val _warmupTextState = MutableStateFlow("Coolant temp: --")
     val warmupTextState: StateFlow<String> = _warmupTextState
+
+    val activeTripSummaryState: StateFlow<ActiveTripSummary?> = tripSummaryTracker.activeTrip
+    val recentTripSummariesState: StateFlow<List<TripSummary>> = tripSummaryRepository.recentTrips
 
     private var latestRpm = 0
     private var latestCoolantTemp: Int? = null
@@ -75,6 +85,9 @@ class MainViewModel : ViewModel() {
         observeEngineRpmState()
         observeCoolantTemperatureState()
         observeTripState()
+        viewModelScope.launch {
+            tripSummaryRepository.refreshRecentTrips()
+        }
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { sessionManager.startSession() }
                 .exceptionOrNull()
@@ -110,6 +123,10 @@ class MainViewModel : ViewModel() {
 
             tripStateManager.tripState
                 .collect { state ->
+                    tripSummaryTracker.onTripStateChanged(state)?.let { summary ->
+                        tripSummaryRepository.saveTrip(summary)
+                    }
+
                     when (state) {
                         is TripState.Active -> {
                             if (previousState is TripState.Idle) {
@@ -141,6 +158,8 @@ class MainViewModel : ViewModel() {
                     latestRpm = sample.displayRpm()
                     _rpmState.value = latestRpm
                     tripStateManager.onRpmSample(sample)
+                    tripSummaryTracker.onTripStateChanged(tripStateManager.tripState.value)
+                    tripSummaryTracker.onRpmChanged(latestRpm)
                     checkWarmupWarning()
                 }
         }
@@ -156,6 +175,7 @@ class MainViewModel : ViewModel() {
                 .collect { sample ->
                     latestCoolantTemp = sample.displayTemperature()
                     _coolantTempState.value = latestCoolantTemp
+                    tripSummaryTracker.onCoolantTemperatureChanged(latestCoolantTemp)
                     _warmupTextState.value = sample.warmupText()
                     checkWarmupWarning()
                 }
@@ -163,7 +183,9 @@ class MainViewModel : ViewModel() {
     }
 
     private suspend fun checkWarmupWarning() {
-        when (warmupWarningManager.onEngineData(latestRpm, latestCoolantTemp)) {
+        val warning = warmupWarningManager.onEngineData(latestRpm, latestCoolantTemp)
+
+        when (warning) {
             is WarmupWarning.HighRpmWhileCold -> {
                 AppLogger.log("Play warmup warning sound")
                 _mainViewCommands.emit(MainViewCommand.SoundWarmupWarning)

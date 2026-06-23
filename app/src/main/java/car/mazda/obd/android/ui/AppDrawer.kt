@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 
 enum class AppDrawerDestination {
     Dashboard,
+    Trips,
     Logs
 }
 
@@ -62,6 +63,11 @@ fun AppDrawer(
                 text = "Dashboard",
                 selected = selectedDestination == AppDrawerDestination.Dashboard,
                 onClick = { onSelectDestination(AppDrawerDestination.Dashboard) }
+            )
+            DrawerItem(
+                text = "Trips",
+                selected = selectedDestination == AppDrawerDestination.Trips,
+                onClick = { onSelectDestination(AppDrawerDestination.Trips) }
             )
             DrawerItem(
                 text = "Logs",

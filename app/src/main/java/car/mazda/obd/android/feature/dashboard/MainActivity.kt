@@ -25,6 +25,7 @@ import androidx.lifecycle.lifecycleScope
 import car.mazda.obd.android.feature.dashboard.command.MainViewCommand
 import car.mazda.obd.android.feature.logs.LogsScreen
 import car.mazda.obd.android.feature.dashboard.ui.MainScreen
+import car.mazda.obd.android.feature.trip.summary.TripsScreen
 import car.mazda.obd.android.ui.AppDrawer
 import car.mazda.obd.android.ui.AppDrawerDestination
 import car.mazda.obd.android.ui.theme.MazdaOBDAndroidTheme
@@ -35,7 +36,9 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
-    private val viewModelFactory = MainViewModelFactory()
+    private val viewModelFactory by lazy {
+        MainViewModelFactory(applicationContext)
+    }
 
     private val viewModel by lazy {
         ViewModelProvider(
@@ -57,6 +60,7 @@ class MainActivity : ComponentActivity() {
                 var screen by rememberSaveable { mutableStateOf("main") }
                 val connectionText by viewModel.connectionTextState.collectAsStateWithLifecycle()
                 val selectedDestination = when (screen) {
+                    "trips" -> AppDrawerDestination.Trips
                     "logs" -> AppDrawerDestination.Logs
                     else -> AppDrawerDestination.Dashboard
                 }
@@ -70,6 +74,7 @@ class MainActivity : ComponentActivity() {
                             onSelectDestination = { destination ->
                                 screen = when (destination) {
                                     AppDrawerDestination.Dashboard -> "main"
+                                    AppDrawerDestination.Trips -> "trips"
                                     AppDrawerDestination.Logs -> "logs"
                                 }
                                 scope.launch { drawerState.close() }
@@ -92,6 +97,12 @@ class MainActivity : ComponentActivity() {
 
                             "logs" -> LogsScreen(
                                 modifier = Modifier.padding(innerPadding),
+                                onOpenMenu = openDrawer
+                            )
+
+                            "trips" -> TripsScreen(
+                                modifier = Modifier.padding(innerPadding),
+                                viewModel = viewModel,
                                 onOpenMenu = openDrawer
                             )
                         }
