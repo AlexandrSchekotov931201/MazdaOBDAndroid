@@ -122,7 +122,7 @@ private fun TripsContent(
             metrics = listOf(
                 "Duration" to selectedDebugTrip.durationMs.formatDuration(),
                 "Max RPM" to selectedDebugTrip.maxRpm.toString(),
-                "Max oil temp" to selectedDebugTrip.maxEngineTempCelsius.formatTemp(),
+                "Max coolant temp" to selectedDebugTrip.maxEngineTempCelsius.formatTemp(),
             ),
             events = selectedDebugTrip.debugEvents,
             emptyText = "No handled OBD errors for this trip",
@@ -139,7 +139,7 @@ private fun TripsContent(
             metrics = listOf(
                 "Duration" to activeTrip.durationMs(nowMs).formatDuration(),
                 "Max RPM" to activeTrip.maxRpm.toString(),
-                "Max oil temp" to activeTrip.maxEngineTempCelsius.formatTemp(),
+                "Max coolant temp" to activeTrip.maxEngineTempCelsius.formatTemp(),
             ),
             events = activeDebugEvents,
             emptyText = "No handled OBD errors for the current trip",
@@ -244,7 +244,7 @@ private fun ActiveTripCard(
     val metrics = buildList {
         add("Duration" to activeTrip.durationMs(nowMs).formatDuration())
         add("Max RPM" to activeTrip.maxRpm.toString())
-        add("Max oil temp" to activeTrip.maxEngineTempCelsius.formatTemp())
+        add("Max coolant temp" to activeTrip.maxEngineTempCelsius.formatTemp())
     }
 
     SummarySurface(
@@ -277,7 +277,7 @@ private fun TripSummaryCard(
     val metrics = buildList {
         add("Duration" to trip.durationMs.formatDuration())
         add("Max RPM" to trip.maxRpm.toString())
-        add("Max oil temp" to trip.maxEngineTempCelsius.formatTemp())
+        add("Max coolant temp" to trip.maxEngineTempCelsius.formatTemp())
     }
 
     SummarySurface(

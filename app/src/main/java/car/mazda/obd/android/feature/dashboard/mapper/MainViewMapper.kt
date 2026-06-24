@@ -11,7 +11,6 @@ class MainViewMapper {
 
     private companion object {
         private const val ENGINE_COOLANT_TEMP_PID = "05"
-        private const val ENGINE_OIL_TEMP_PID = "5C"
         private const val ENGINE_RPM_PID = "0C"
         private const val TEMPERATURE_OFFSET = 40
         private const val RPM_DIVISOR = 4
@@ -58,15 +57,6 @@ class MainViewMapper {
             pid = ENGINE_COOLANT_TEMP_PID,
             unrecognizedLogPrefix = "Unrecognized coolant temperature response",
             errorLogPrefix = "Coolant temperature response error",
-        )
-    }
-
-    fun mapEngineOilTemperature(response: OBDResponse): EngineTemperatureSample {
-        return mapTemperatureResponse(
-            response = response,
-            pid = ENGINE_OIL_TEMP_PID,
-            unrecognizedLogPrefix = "Unrecognized oil temperature response",
-            errorLogPrefix = "Oil temperature response error",
         )
     }
 
@@ -123,7 +113,7 @@ class MainViewMapper {
 
     private fun mapTemperature(dataList: List<OBDData>, pid: String): Int? {
         val tempData = dataList.firstOrNull {
-            it.canId == CanIds.ENGINE_ECU_RESPONSE && it.pid == pid
+            it.canId.isEngineEcuResponse() && it.pid == pid
         } ?: return null
 
         return try {

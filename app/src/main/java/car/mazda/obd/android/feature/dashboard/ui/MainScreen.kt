@@ -26,6 +26,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import car.mazda.obd.android.feature.dashboard.MainViewModel
 import car.mazda.obd.android.feature.dashboard.ui.MazdaStyleTachometer
+import car.mazda.obd.android.feature.warmup.EngineWarmupGuidance
+import car.mazda.obd.android.feature.warmup.EngineWarmupStage
 import car.mazda.obd.android.ui.AppToolbar
 
 @Composable
@@ -36,13 +38,13 @@ internal fun MainScreen(
 ) {
     val connectionTextState by viewModel.connectionTextState.collectAsStateWithLifecycle()
     val rpmState by viewModel.rpmState.collectAsStateWithLifecycle()
-    val oilTempState by viewModel.oilTempState.collectAsStateWithLifecycle()
+    val coolantTempState by viewModel.coolantTempState.collectAsStateWithLifecycle()
     val warmupTextState by viewModel.warmupTextState.collectAsStateWithLifecycle()
 
     MainContent(
         connectionText = connectionTextState,
         rpm = rpmState,
-        oilTemp = oilTempState,
+        coolantTemp = coolantTempState,
         warmupText = warmupTextState,
         onOpenMenu = onOpenMenu,
         modifier = modifier,
@@ -53,21 +55,21 @@ internal fun MainScreen(
 private fun MainContent(
     connectionText: String,
     rpm: Int,
-    oilTemp: Int?,
+    coolantTemp: Int?,
     warmupText: String,
     onOpenMenu: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val connectionStatus = connectionText.toConnectionStatus()
     val engineStatus = if (connectionStatus == ConnectionStatus.Ready) {
-        oilTemp.toEngineStatus()
+        coolantTemp.toEngineStatus()
     } else {
         EngineStatus.NoData
     }
     val engineText = if (connectionStatus == ConnectionStatus.Ready) {
         warmupText
     } else {
-        "Oil temp: --"
+        "Coolant temp: --"
     }
 
     Column(
@@ -162,7 +164,7 @@ private fun EngineStatusBanner(
             Text(
                 text = warmupText,
                 style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }
@@ -198,8 +200,13 @@ private enum class EngineStatus(
         containerColor = Color(0xFFFFF3E0),
         contentColor = Color(0xFF5D3A00)
     ),
-    Warm(
-        title = "Engine temperature normal",
+    NormalCity(
+        title = "Normal city driving",
+        containerColor = Color(0xFFE8F5E9),
+        contentColor = Color(0xFF1B5E20)
+    ),
+    FullyWarm(
+        title = "Fully warm",
         containerColor = Color(0xFFE8F5E9),
         contentColor = Color(0xFF1B5E20)
     ),
@@ -217,9 +224,11 @@ private fun String.toConnectionStatus(): ConnectionStatus =
     }
 
 private fun Int?.toEngineStatus(): EngineStatus =
-    when {
-        this == null -> EngineStatus.NoData
-        this >= 105 -> EngineStatus.Critical
-        this >= 75 -> EngineStatus.Warm
-        else -> EngineStatus.WarmingUp
+    when (this?.let(EngineWarmupGuidance::stageFor)) {
+        null -> EngineStatus.NoData
+        EngineWarmupStage.VeryGentle,
+        EngineWarmupStage.Gentle -> EngineStatus.WarmingUp
+        EngineWarmupStage.NormalCity -> EngineStatus.NormalCity
+        EngineWarmupStage.FullyWarm -> EngineStatus.FullyWarm
+        EngineWarmupStage.Critical -> EngineStatus.Critical
     }
