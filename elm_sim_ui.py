@@ -25,10 +25,12 @@ state = {
     "response_delay_ms": 0,       # artificial delay before sending response (0..5000 ms)
 
     # Bad/garbage response simulation:
-    "response_mode": "normal",    # normal | garbage | wrong_can | malformed | random
+    "response_mode": "normal",    # normal | garbage | wrong_can | wrong_pid | malformed | bad_payload | no_data | searching | random
     "garbage_every_n": 0,         # 0 = never, 1 = always, 5 = every 5th request
     "garbage_only_010c": True,    # apply garbage only to 010C
     "request_counter": 0,         # internal counter
+    "one_shot_response_mode": "normal",  # one bad response, then auto-reset to normal
+    "one_shot_only_010c": True,
 
     # RPM test
     "rpm_test_running": False,
@@ -202,7 +204,11 @@ HTML = """
         <option value="normal">normal</option>
         <option value="garbage">garbage text</option>
         <option value="wrong_can">wrong CAN id</option>
+        <option value="wrong_pid">valid CAN, wrong PID</option>
         <option value="malformed">malformed line</option>
+        <option value="bad_payload">bad RPM payload</option>
+        <option value="no_data">NO DATA</option>
+        <option value="searching">SEARCHING</option>
         <option value="random">random mix</option>
       </select>
 
@@ -224,6 +230,24 @@ HTML = """
         <input id="only010cChk" type="checkbox" onchange="setOnly010c(this.checked)">
         Apply only to 010C
       </label>
+    </div>
+
+    <div class="row preset">
+      <b>One-shot RPM debug faults:</b>
+      <span class="hint">next matching <code>010C</code> response only, then auto-reset</span>
+    </div>
+    <div class="row preset">
+      <button onclick="triggerFault('no_data')">NO DATA</button>
+      <button onclick="triggerFault('searching')">SEARCHING</button>
+      <button onclick="triggerFault('garbage')">Garbage raw</button>
+      <button onclick="triggerFault('malformed')">Malformed line</button>
+      <button onclick="triggerFault('bad_payload')">Bad RPM payload</button>
+      <button onclick="triggerFault('wrong_pid')">No RPM PID</button>
+      <button onclick="triggerFault('wrong_can')">Wrong CAN</button>
+      <button onclick="triggerFault('random')">Random</button>
+    </div>
+    <div class="row hint">
+      Pending one-shot fault: <b id="oneShotMode">normal</b>
     </div>
 
     <div class="row">
@@ -276,6 +300,7 @@ function applyStateToUi(s) {
 
   document.getElementById('only010cChk').checked = !!s.garbage_only_010c;
   document.getElementById('clients').textContent = s.active_clients || 0;
+  document.getElementById('oneShotMode').textContent = s.one_shot_response_mode || "normal";
 
   const muteLabel = document.getElementById('muteLabel');
   if (s.mute_responses) muteLabel.classList.add('muted');
@@ -478,6 +503,19 @@ async function resetCounter() {
   applyStateToUi(localState);
 }
 
+async function triggerFault(mode) {
+  if (!localState) await syncState();
+  localState.one_shot_response_mode = mode;
+  localState.one_shot_only_010c = true;
+  applyStateToUi(localState);
+
+  await fetch('/api/debug_fault', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({mode, only_010c: true})
+  });
+}
+
 // RPM test buttons
 async function startRpmTest() {
   await fetch('/api/rpm_test/start', {method:'POST'});
@@ -651,7 +689,7 @@ def drop_now():
 def set_response_mode():
     data = request.get_json(force=True)
     mode = str(data.get("mode", "normal"))
-    allowed = {"normal", "garbage", "wrong_can", "malformed", "random"}
+    allowed = {"normal", "garbage", "wrong_can", "wrong_pid", "malformed", "bad_payload", "no_data", "searching", "random"}
     if mode not in allowed:
         mode = "normal"
     with state_lock:
@@ -681,6 +719,19 @@ def set_garbage_only_010c():
 def reset_counter():
     with state_lock:
         state["request_counter"] = 0
+    notify_state()
+    return jsonify(ok=True)
+
+@app.post("/api/debug_fault")
+def set_debug_fault():
+    data = request.get_json(force=True)
+    mode = str(data.get("mode", "normal"))
+    allowed = {"normal", "garbage", "wrong_can", "wrong_pid", "malformed", "bad_payload", "no_data", "searching", "random"}
+    if mode not in allowed:
+        mode = "normal"
+    with state_lock:
+        state["one_shot_response_mode"] = mode
+        state["one_shot_only_010c"] = bool(data.get("only_010c", True))
     notify_state()
     return jsonify(ok=True)
 
@@ -786,19 +837,57 @@ def elm_prompt(conn, payload: str):
 
 def garbage_response(mode: str) -> str:
     # NOTE: elm_prompt will add \r\r> at the end
+    if mode == "no_data":
+        return "NO DATA"
+    if mode == "searching":
+        return "SEARCHING..."
     if mode == "garbage":
         return "THIS IS GARBAGE!!! ### ???"
     if mode == "wrong_can":
-        # Looks similar, but CAN id is not 7E8
-        return "7E9 04 41 0C 00 10"
+        # Looks similar, but CAN id is outside 7E8..7EF and should be rejected by Android.
+        return "7D0 04 41 0C 0D 48"
+    if mode == "wrong_pid":
+        # Valid-looking ECU response, but not RPM PID 0C.
+        return "7E8 03 41 05 64"
     if mode == "malformed":
-        # Broken tokens / non-hex
+        # Broken tokens / non-hex line that should fail generic OBD parsing.
         return "7E8 ZZ 41 0C GG HH"
+    if mode == "bad_payload":
+        # Valid CAN/mode/PID shape, but RPM payload bytes are not hex.
+        return "7E8 04 41 0C GG HH"
     if mode == "random":
-        return garbage_response(random.choice(["garbage", "wrong_can", "malformed"]))
+        return garbage_response(random.choice([
+            "garbage",
+            "wrong_can",
+            "wrong_pid",
+            "malformed",
+            "bad_payload",
+            "no_data",
+            "searching",
+        ]))
     return "NO DATA"
 
-def should_inject_garbage(normalized_cmd: str) -> bool:
+def injected_response_mode(normalized_cmd: str):
+    with state_lock:
+        one_shot_mode = state["one_shot_response_mode"]
+        one_shot_only_010c = state["one_shot_only_010c"]
+        if one_shot_mode != "normal":
+            if (not one_shot_only_010c) or normalized_cmd == "010C":
+                state["one_shot_response_mode"] = "normal"
+                notify = True
+                mode = one_shot_mode
+            else:
+                notify = False
+                mode = None
+        else:
+            notify = False
+            mode = None
+
+    if mode:
+        if notify:
+            notify_state()
+        return mode
+
     with state_lock:
         mode = state["response_mode"]
         every_n = state["garbage_every_n"]
@@ -807,12 +896,12 @@ def should_inject_garbage(normalized_cmd: str) -> bool:
         cnt = state["request_counter"]
 
     if mode == "normal" or every_n <= 0:
-        return False
+        return None
     if cnt % every_n != 0:
-        return False
+        return None
     if only_010c and normalized_cmd != "010C":
-        return False
-    return True
+        return None
+    return mode
 
 def handle_command(cmd: str) -> str:
     c = cmd.strip().upper().replace(" ", "")
@@ -820,10 +909,10 @@ def handle_command(cmd: str) -> str:
         return ""
 
     # Inject garbage responses (controlled from UI)
-    if should_inject_garbage(c):
-        with state_lock:
-            mode = state["response_mode"]
-        return garbage_response(mode)
+    injected_mode = injected_response_mode(c)
+    if injected_mode:
+        print("INJECT:", injected_mode, "for", c)
+        return garbage_response(injected_mode)
 
     # ELM init sequence (expand as needed)
     if c in ("ATZ", "ATE0", "ATL0", "ATS0", "ATH1", "ATSP0"):

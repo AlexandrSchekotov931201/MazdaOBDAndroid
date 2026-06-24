@@ -19,19 +19,32 @@ class MainViewMapper {
 
     fun mapEngineRpm(response: OBDResponse): EngineRpmSample {
         return when (response) {
-            is OBDResponse.Data -> EngineRpmSample.Value(mapEngineRpm(response.data))
+            is OBDResponse.Data -> {
+                mapEngineRpm(response.data)
+                    ?.let(EngineRpmSample::Value)
+                    ?: EngineRpmSample.NoData
+            }
             is OBDResponse.NoData -> {
                 when (response) {
-                    is OBDResponse.NoData.Empty,
-                    is OBDResponse.NoData.Searching -> EngineRpmSample.NoData
+                    is OBDResponse.NoData.Empty -> {
+                        AppLogger.handledError("Handled RPM no data: pid=010C raw=${response.raw.compactRaw()}")
+                        EngineRpmSample.NoData
+                    }
+
+                    is OBDResponse.NoData.Searching -> {
+                        AppLogger.handledError("Handled RPM searching: pid=010C raw=${response.raw.compactRaw()}")
+                        EngineRpmSample.NoData
+                    }
 
                     is OBDResponse.NoData.Unrecognized -> {
-                        AppLogger.log("Unrecognized OBD response: ${response.raw}")
+                        AppLogger.handledError("Handled unrecognized RPM response: pid=010C raw=${response.raw.compactRaw()}")
                         EngineRpmSample.NoData
                     }
 
                     is OBDResponse.NoData.Error -> {
-                        AppLogger.log("OBD response error: ${response.throwable}")
+                        AppLogger.handledError(
+                            "Handled RPM response error: pid=010C error=${response.throwable::class.simpleName}: ${response.throwable.message} raw=${response.raw.compactRaw()}"
+                        )
                         EngineRpmSample.ConnectionError(response.throwable)
                     }
                 }
@@ -75,12 +88,14 @@ class MainViewMapper {
                     is OBDResponse.NoData.Searching -> EngineTemperatureSample.NoData
 
                     is OBDResponse.NoData.Unrecognized -> {
-                        AppLogger.log("$unrecognizedLogPrefix: ${response.raw}")
+                        AppLogger.handledError("Handled $unrecognizedLogPrefix: pid=$pid raw=${response.raw.compactRaw()}")
                         EngineTemperatureSample.NoData
                     }
 
                     is OBDResponse.NoData.Error -> {
-                        AppLogger.log("$errorLogPrefix: ${response.throwable}")
+                        AppLogger.handledError(
+                            "Handled $errorLogPrefix: pid=$pid error=${response.throwable::class.simpleName}: ${response.throwable.message} raw=${response.raw.compactRaw()}"
+                        )
                         EngineTemperatureSample.ConnectionError(response.throwable)
                     }
                 }
@@ -88,17 +103,21 @@ class MainViewMapper {
         }
     }
 
-    private fun mapEngineRpm(dataList: List<OBDData>): Int {
+    private fun mapEngineRpm(dataList: List<OBDData>): Int? {
         val rpmData = dataList.firstOrNull {
-            it.canId == CanIds.ENGINE_ECU_RESPONSE && it.pid == ENGINE_RPM_PID
-        } ?: return 0
+            it.canId.isEngineEcuResponse() && it.pid == ENGINE_RPM_PID
+        } ?: run {
+            AppLogger.handledError("Handled RPM response without engine RPM data: pid=010C parsed=${dataList.describe()}")
+            return null
+        }
 
         return try {
             val a = rpmData.data[0].toInt(16)
             val b = rpmData.data[1].toInt(16)
             (a * 256 + b) / RPM_DIVISOR
         } catch (t: Throwable) {
-            0
+            AppLogger.handledError("Handled malformed RPM payload: pid=010C can=${rpmData.canId} payload=${rpmData.data} error=${t.message}")
+            null
         }
     }
 
@@ -113,6 +132,21 @@ class MainViewMapper {
             null
         }
     }
+
+    private fun String.isEngineEcuResponse(): Boolean =
+        this == CanIds.ENGINE_ECU_RESPONSE || matches(Regex("7E[8-F]", RegexOption.IGNORE_CASE))
+
+    private fun String.compactRaw(): String =
+        lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && it != ">" }
+            .joinToString(" | ")
+            .take(240)
+
+    private fun List<OBDData>.describe(): String =
+        joinToString(limit = 4, truncated = "...") { data ->
+            "${data.canId}/${data.pid}/${data.data.joinToString(" ")}"
+        }.ifBlank { "empty" }
 }
 
 
