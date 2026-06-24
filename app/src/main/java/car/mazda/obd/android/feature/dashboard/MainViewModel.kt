@@ -35,6 +35,10 @@ class MainViewModel(
     private val tripSummaryRepository: TripSummaryRepository,
 ) : ViewModel() {
 
+    private companion object {
+        private const val RPM_STALE_HOLD_MS = 2_500L
+    }
+
     private val client = OBDClient()
     private val sessionManager = OBDSessionManager(client, viewModelScope)
     private val dataReader = OBDDataReader(
@@ -66,6 +70,8 @@ class MainViewModel(
     val recentTripSummariesState: StateFlow<List<TripSummary>> = tripSummaryRepository.recentTrips
 
     private var latestRpm = 0
+    private var latestValidRpm = 0
+    private var latestValidRpmAtMs = 0L
     private var latestOilTemp: Int? = null
 
     private var started = false
@@ -159,7 +165,9 @@ class MainViewModel(
                     _rpmState.value = latestRpm
                     tripStateManager.onRpmSample(sample)
                     tripSummaryTracker.onTripStateChanged(tripStateManager.tripState.value)
-                    tripSummaryTracker.onRpmChanged(latestRpm)
+                    if (sample is EngineRpmSample.Value) {
+                        tripSummaryTracker.onRpmChanged(sample.rpm)
+                    }
                     checkWarmupWarning()
                 }
         }
@@ -198,12 +206,24 @@ class MainViewModel(
         }
     }
 
-    private fun EngineRpmSample.displayRpm(): Int =
-        when (this) {
-            is EngineRpmSample.Value -> rpm
+    private fun EngineRpmSample.displayRpm(): Int {
+        val now = System.currentTimeMillis()
+        return when (this) {
+            is EngineRpmSample.Value -> {
+                latestValidRpm = rpm
+                latestValidRpmAtMs = now
+                rpm
+            }
             is EngineRpmSample.NoData,
-            is EngineRpmSample.ConnectionError -> 0
+            is EngineRpmSample.ConnectionError -> {
+                if (now - latestValidRpmAtMs <= RPM_STALE_HOLD_MS) {
+                    latestValidRpm
+                } else {
+                    0
+                }
+            }
         }
+    }
 
     private fun EngineTemperatureSample.displayTemperature(): Int? =
         when (this) {

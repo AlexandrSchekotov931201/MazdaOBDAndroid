@@ -24,6 +24,11 @@ import java.net.UnknownHostException
 
 class OBDClient {
 
+    private companion object {
+        private const val CONNECT_TIMEOUT_MS = 10_000
+        private const val READ_TIMEOUT_MS = 2_000
+    }
+
     private var socket: Socket? = null
     private var reader: BufferedReader? = null
     private var writer: OutputStreamWriter? = null
@@ -40,8 +45,8 @@ class OBDClient {
             unlockedRelease()
 
             val s = Socket()
-            s.connect(InetSocketAddress(host, port), 10000)
-            s.soTimeout = 10000
+            s.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+            s.soTimeout = READ_TIMEOUT_MS
 
             socket = s
             reader = BufferedReader(InputStreamReader(s.getInputStream()))
