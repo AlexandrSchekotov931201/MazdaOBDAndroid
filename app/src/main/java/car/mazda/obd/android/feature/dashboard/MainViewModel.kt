@@ -38,6 +38,7 @@ class MainViewModel(
 
     private companion object {
         private const val RPM_STALE_HOLD_MS = 2_500L
+        private const val RPM_POLL_PERIOD_MS = 250L
     }
 
     private val client = OBDClient()
@@ -156,7 +157,7 @@ class MainViewModel(
 
     private fun observeEngineRpmState() {
         viewModelScope.launch(Dispatchers.IO) {
-            dataReader.rpmFlow(periodMs = 100)
+            dataReader.rpmFlow(periodMs = RPM_POLL_PERIOD_MS)
                 .map(viewMapper::mapEngineRpm)
                 .catch { t ->
                     AppLogger.log("rpmFlow error: ${t.message}")

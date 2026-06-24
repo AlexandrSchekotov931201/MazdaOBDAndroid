@@ -20,6 +20,7 @@ class OBDDataMapper {
         private const val OBD_RESPONSE_MODE_PREFIX = "4"
         private const val OBD_SERVICE_SEARCHING = "SEARCHING"
         private const val OBD_SERVICE_NO_DATA = "NO DATA"
+        private const val OBD_SERVICE_CAN_ERROR = "CAN ERROR"
         private const val OBD_SERVICE_OK = "OK"
         private const val OBD_SERVICE_ERROR = "ERROR"
 
@@ -31,12 +32,17 @@ class OBDDataMapper {
         return try {
             val hasSearching = raw.contains("SEARCHING", ignoreCase = true)
             val hasNoData = raw.contains("NO DATA", ignoreCase = true)
+            val hasCanError = raw.contains("CAN ERROR", ignoreCase = true)
 
             val responses = parseResponses(raw)
 
             when {
                 responses.isNotEmpty() -> {
                     OBDResponse.Data(responses)
+                }
+
+                hasCanError -> {
+                    OBDResponse.NoData.CanError(raw)
                 }
 
                 hasSearching -> {
@@ -67,6 +73,7 @@ class OBDDataMapper {
 
             if (upper.startsWith(OBD_SERVICE_SEARCHING)) return@forEach
             if (upper == OBD_SERVICE_NO_DATA) return@forEach
+            if (upper == OBD_SERVICE_CAN_ERROR) return@forEach
             if (upper == OBD_SERVICE_OK) return@forEach
             if (upper.contains(OBD_SERVICE_ERROR)) return@forEach
             if (ln == ELM_PROMPT) return@forEach
