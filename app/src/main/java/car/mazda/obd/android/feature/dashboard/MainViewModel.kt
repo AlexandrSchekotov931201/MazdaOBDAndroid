@@ -16,6 +16,7 @@ import car.mazda.obd.android.feature.trip.summary.ActiveTripSummary
 import car.mazda.obd.android.feature.trip.summary.TripSummary
 import car.mazda.obd.android.feature.trip.summary.TripSummaryRepository
 import car.mazda.obd.android.feature.trip.summary.TripSummaryTracker
+import car.mazda.obd.android.feature.warmup.EngineWarmupGuidance
 import car.mazda.obd.android.feature.warmup.EngineTemperatureSample
 import car.mazda.obd.android.feature.warmup.WarmupWarning
 import car.mazda.obd.android.feature.warmup.WarmupWarningManager
@@ -60,10 +61,10 @@ class MainViewModel(
     private val _rpmState = MutableStateFlow(0)
     val rpmState: StateFlow<Int> = _rpmState
 
-    private val _oilTempState = MutableStateFlow<Int?>(null)
-    val oilTempState: StateFlow<Int?> = _oilTempState
+    private val _coolantTempState = MutableStateFlow<Int?>(null)
+    val coolantTempState: StateFlow<Int?> = _coolantTempState
 
-    private val _warmupTextState = MutableStateFlow("Oil temp: --")
+    private val _warmupTextState = MutableStateFlow("Coolant temp: --")
     val warmupTextState: StateFlow<String> = _warmupTextState
 
     val activeTripSummaryState: StateFlow<ActiveTripSummary?> = tripSummaryTracker.activeTrip
@@ -72,7 +73,7 @@ class MainViewModel(
     private var latestRpm = 0
     private var latestValidRpm = 0
     private var latestValidRpmAtMs = 0L
-    private var latestOilTemp: Int? = null
+    private var latestCoolantTemp: Int? = null
 
     private var started = false
 
@@ -89,7 +90,7 @@ class MainViewModel(
 
         observeSessionState()
         observeEngineRpmState()
-        observeOilTemperatureState()
+        observeCoolantTemperatureState()
         observeTripState()
         viewModelScope.launch {
             tripSummaryRepository.refreshRecentTrips()
@@ -173,17 +174,17 @@ class MainViewModel(
         }
     }
 
-    private fun observeOilTemperatureState() {
+    private fun observeCoolantTemperatureState() {
         viewModelScope.launch(Dispatchers.IO) {
-            dataReader.oilTemperatureFlow(periodMs = 1_000)
-                .map(viewMapper::mapEngineOilTemperature)
+            dataReader.coolantTemperatureFlow(periodMs = 1_000)
+                .map(viewMapper::mapEngineCoolantTemperature)
                 .catch { t ->
-                    AppLogger.log("oilTemperatureFlow error: ${t.message}")
+                    AppLogger.log("coolantTemperatureFlow error: ${t.message}")
                 }
                 .collect { sample ->
-                    latestOilTemp = sample.displayTemperature()
-                    _oilTempState.value = latestOilTemp
-                    tripSummaryTracker.onEngineTemperatureChanged(latestOilTemp)
+                    latestCoolantTemp = sample.displayTemperature()
+                    _coolantTempState.value = latestCoolantTemp
+                    tripSummaryTracker.onEngineTemperatureChanged(latestCoolantTemp)
                     _warmupTextState.value = sample.warmupText()
                     checkWarmupWarning()
                 }
@@ -191,10 +192,10 @@ class MainViewModel(
     }
 
     private suspend fun checkWarmupWarning() {
-        val warning = warmupWarningManager.onEngineData(latestRpm, latestOilTemp)
+        val warning = warmupWarningManager.onEngineData(latestRpm, latestCoolantTemp)
 
         when (warning) {
-            is WarmupWarning.HighRpmWhileCold -> {
+            is WarmupWarning.HighRpmForTemperature -> {
                 AppLogger.log("Play warmup warning sound")
                 _mainViewCommands.emit(MainViewCommand.SoundWarmupWarning)
             }
@@ -235,14 +236,10 @@ class MainViewModel(
     private fun EngineTemperatureSample.warmupText(): String =
         when (this) {
             is EngineTemperatureSample.Value -> {
-                val status = when {
-                    celsius >= 105 -> "Critical temperature"
-                    celsius >= 75 -> "Engine warm"
-                    else -> "Engine warming up"
-                }
-                "Oil temp: ${celsius}C - $status"
+                val stage = EngineWarmupGuidance.stageFor(celsius)
+                "Coolant ${celsius}C - ${stage.detail}"
             }
-            is EngineTemperatureSample.NoData -> "Oil temp: --"
-            is EngineTemperatureSample.ConnectionError -> "Oil temp: connection error"
+            is EngineTemperatureSample.NoData -> "Coolant temp: --"
+            is EngineTemperatureSample.ConnectionError -> "Coolant temp: connection error"
         }
 }

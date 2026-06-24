@@ -17,7 +17,6 @@ state = {
     "ignition": True,
     "rpm": 850,
     "coolant_temp": 40,
-    "oil_temp": 35,
 
     # Connection/testing controls:
     "mute_responses": False,      # if True -> do not send any replies (simulate "adapter stopped responding")
@@ -27,10 +26,10 @@ state = {
     # Bad/garbage response simulation:
     "response_mode": "normal",    # normal | garbage | wrong_can | wrong_pid | malformed | bad_payload | no_data | searching | random
     "garbage_every_n": 0,         # 0 = never, 1 = always, 5 = every 5th request
-    "garbage_only_010c": True,    # apply garbage only to 010C
+    "garbage_only_010c": True,    # apply garbage only to 010C; disable to also test 0105
     "request_counter": 0,         # internal counter
     "one_shot_response_mode": "normal",  # one bad response, then auto-reset to normal
-    "one_shot_only_010c": True,
+    "one_shot_only_010c": False,
 
     # RPM test
     "rpm_test_running": False,
@@ -103,9 +102,6 @@ HTML = """
     <div class="row">
       Coolant temp: <b id="coolantTemp">?</b> C
     </div>
-    <div class="row">
-      Oil temp: <b id="oilTemp">?</b> C
-    </div>
 
     <div class="row">
       <button onclick="setIgn(true)">Ignition ON</button>
@@ -126,21 +122,15 @@ HTML = """
              onchange="commitCoolantTemp(this.value)">
       <span id="coolantTempVal"></span>
     </div>
-    <div class="row">
-      <input id="oilTempRange" type="range" min="-20" max="150" step="1"
-             oninput="setOilTempLocal(this.value)"
-             onchange="commitOilTemp(this.value)">
-      <span id="oilTempVal"></span>
-    </div>
-    <div class="row hint">Слайдер обновляет UI сразу. На сервер RPM отправляется при отпускании (onchange).</div>
+    <div class="row hint">Sliders update the UI immediately. Values are sent to the server when the slider is released.</div>
 
     <hr/>
 
     <div class="row">
       <b>Warmup / temperature warning tests:</b>
       <div class="hint">
-        App rule: oil below 75 C + RPM above 2000 should keep beeping while the condition is active.
-        Oil 105 C or higher should keep playing the critical warning at any RPM.
+        App rule: coolant below 75 C + RPM above 2000 should keep beeping while the condition is active.
+        Coolant 105 C or higher should keep playing the critical warning at any RPM.
       </div>
     </div>
     <div class="row preset">
@@ -150,7 +140,7 @@ HTML = """
       <button onclick="applyWarmupPreset('overheat_idle')">Overheat idle: critical</button>
     </div>
     <div class="row hint">
-      Presets keep ignition ON and update RPM + oil temperature together. Drop RPM or temperature back to normal to stop the repeated warning.
+      Presets keep ignition ON and update RPM + coolant temperature together. Drop RPM or temperature back to normal to stop the repeated warning.
     </div>
 
     <hr/>
@@ -161,13 +151,13 @@ HTML = """
       <button onclick="stopRpmTest()">Stop</button>
       <span id="rpmTestStatus" class="hint"></span>
     </div>
-    <div class="row hint">Тест: плавный набор → резкий сброс (как переключение передачи) → повтор + газовки.</div>
+    <div class="row hint">Test pattern: smooth acceleration, sharp gear-shift drops, another pull, throttle blips, then idle wobble.</div>
 
     <hr/>
 
     <div class="row">
       Active TCP clients: <b id="clients">0</b>
-      <span class="hint">(обновится автоматически через SSE или при Sync)</span>
+      <span class="hint">(updates automatically through SSE or when Sync is pressed)</span>
     </div>
 
     <div class="row">
@@ -228,21 +218,21 @@ HTML = """
     <div class="row">
       <label>
         <input id="only010cChk" type="checkbox" onchange="setOnly010c(this.checked)">
-        Apply only to 010C
+        Apply only to RPM (010C)
       </label>
     </div>
 
     <div class="row preset">
-      <b>One-shot RPM debug faults:</b>
-      <span class="hint">next matching <code>010C</code> response only, then auto-reset</span>
+      <b>One-shot debug faults:</b>
+      <span class="hint">next matching read-only OBD response, then auto-reset</span>
     </div>
     <div class="row preset">
       <button onclick="triggerFault('no_data')">NO DATA</button>
       <button onclick="triggerFault('searching')">SEARCHING</button>
       <button onclick="triggerFault('garbage')">Garbage raw</button>
       <button onclick="triggerFault('malformed')">Malformed line</button>
-      <button onclick="triggerFault('bad_payload')">Bad RPM payload</button>
-      <button onclick="triggerFault('wrong_pid')">No RPM PID</button>
+      <button onclick="triggerFault('bad_payload')">Bad payload</button>
+      <button onclick="triggerFault('wrong_pid')">Wrong PID</button>
       <button onclick="triggerFault('wrong_can')">Wrong CAN</button>
       <button onclick="triggerFault('random')">Random</button>
     </div>
@@ -252,11 +242,11 @@ HTML = """
 
     <div class="row">
       <small>
-        Android клиент получает ответы на <code>010C</code> как от ELM (CAN 7E8) когда ignition ON.<br/>
-        <span class="muted">Mute</span> = не отвечаем (симулируем "адаптер перестал отдавать ответы").<br/>
-        <span class="muted">Drop</span> = разрыв TCP (симулируем "соединение оборвалось").<br/>
-        Bad responses = левые ответы для теста парсинга/логики (Unrecognized/ProtocolException/etc).<br/>
-        UI обновляется без polling через <span class="ok">SSE</span> (/api/events).
+        Android receives read-only ELM-style replies for <code>010C</code> RPM and <code>0105</code> coolant temperature while ignition is ON.<br/>
+        <span class="muted">Mute</span> = send no replies, simulating an adapter that stopped responding.<br/>
+        <span class="muted">Drop</span> = close the TCP socket, simulating a lost connection.<br/>
+        Bad responses = malformed or mismatched replies for parser/debug-log testing.<br/>
+        UI updates without polling through <span class="ok">SSE</span> (/api/events).
       </small>
     </div>
   </div>
@@ -269,7 +259,6 @@ function applyStateToUi(s) {
   document.getElementById('ign').textContent = s.ignition ? 'ON' : 'OFF';
   document.getElementById('rpm').textContent = s.rpm;
   document.getElementById('coolantTemp').textContent = s.coolant_temp;
-  document.getElementById('oilTemp').textContent = s.oil_temp;
 
   const slider = document.getElementById('rpmRange');
   slider.value = s.rpm;
@@ -279,9 +268,6 @@ function applyStateToUi(s) {
   tempSlider.value = s.coolant_temp;
   document.getElementById('coolantTempVal').textContent = s.coolant_temp + " C";
 
-  const oilTempSlider = document.getElementById('oilTempRange');
-  oilTempSlider.value = s.oil_temp;
-  document.getElementById('oilTempVal').textContent = s.oil_temp + " C";
 
   document.getElementById('muteChk').checked = !!s.mute_responses;
   document.getElementById('dropModeChk').checked = !!s.drop_connections;
@@ -387,26 +373,12 @@ async function commitCoolantTemp(v) {
   });
 }
 
-function setOilTempLocal(v) {
-  const temp = parseInt(v);
-  localState.oil_temp = temp;
-  applyStateToUi(localState);
-}
-
-async function commitOilTemp(v) {
-  await fetch('/api/oil_temp', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({oil_temp: parseInt(v)})
-  });
-}
-
 async function applyWarmupPreset(name) {
   const presets = {
-    cold_idle: {ignition: true, rpm: 850, oil_temp: 35},
-    cold_high_rpm: {ignition: true, rpm: 2500, oil_temp: 35},
-    warm_high_rpm: {ignition: true, rpm: 2500, oil_temp: 80},
-    overheat_idle: {ignition: true, rpm: 900, oil_temp: 110},
+    cold_idle: {ignition: true, rpm: 850, coolant_temp: 35},
+    cold_high_rpm: {ignition: true, rpm: 2500, coolant_temp: 35},
+    warm_high_rpm: {ignition: true, rpm: 2500, coolant_temp: 80},
+    overheat_idle: {ignition: true, rpm: 900, coolant_temp: 110},
   };
 
   const preset = presets[name];
@@ -506,13 +478,13 @@ async function resetCounter() {
 async function triggerFault(mode) {
   if (!localState) await syncState();
   localState.one_shot_response_mode = mode;
-  localState.one_shot_only_010c = true;
+  localState.one_shot_only_010c = false;
   applyStateToUi(localState);
 
   await fetch('/api/debug_fault', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({mode, only_010c: true})
+    body: JSON.stringify({mode, only_010c: false})
   });
 }
 
@@ -606,29 +578,19 @@ def set_coolant_temp():
     notify_state()
     return jsonify(ok=True)
 
-@app.post("/api/oil_temp")
-def set_oil_temp():
-    data = request.get_json(force=True)
-    temp = int(data.get("oil_temp", 0))
-    temp = max(-20, min(150, temp))
-    with state_lock:
-        state["oil_temp"] = temp
-    notify_state()
-    return jsonify(ok=True)
-
 @app.post("/api/warmup_preset")
 def set_warmup_preset():
     data = request.get_json(force=True)
     rpm = int(data.get("rpm", 0))
     rpm = max(0, min(8000, rpm))
-    oil_temp = int(data.get("oil_temp", 0))
-    oil_temp = max(-20, min(150, oil_temp))
+    coolant_temp = int(data.get("coolant_temp", 0))
+    coolant_temp = max(-20, min(130, coolant_temp))
     ignition = bool(data.get("ignition", True))
 
     with state_lock:
         state["ignition"] = ignition
         state["rpm"] = rpm if ignition else 0
-        state["oil_temp"] = oil_temp
+        state["coolant_temp"] = coolant_temp
 
     notify_state()
     return jsonify(ok=True)
@@ -835,7 +797,7 @@ def elm_prompt(conn, payload: str):
     # Must end with '>' because Android client reads until '>'
     conn.sendall((payload + "\r\r>").encode("ascii", errors="ignore"))
 
-def garbage_response(mode: str) -> str:
+def garbage_response(mode: str, normalized_cmd: str = "010C") -> str:
     # NOTE: elm_prompt will add \r\r> at the end
     if mode == "no_data":
         return "NO DATA"
@@ -845,15 +807,23 @@ def garbage_response(mode: str) -> str:
         return "THIS IS GARBAGE!!! ### ???"
     if mode == "wrong_can":
         # Looks similar, but CAN id is outside 7E8..7EF and should be rejected by Android.
+        if normalized_cmd == "0105":
+            return "7D0 03 41 05 64"
         return "7D0 04 41 0C 0D 48"
     if mode == "wrong_pid":
-        # Valid-looking ECU response, but not RPM PID 0C.
+        # Valid-looking ECU response, but not the PID that was requested.
+        if normalized_cmd == "0105":
+            return "7E8 04 41 0C 0D 48"
         return "7E8 03 41 05 64"
     if mode == "malformed":
         # Broken tokens / non-hex line that should fail generic OBD parsing.
+        if normalized_cmd == "0105":
+            return "7E8 ZZ 41 05 GG"
         return "7E8 ZZ 41 0C GG HH"
     if mode == "bad_payload":
-        # Valid CAN/mode/PID shape, but RPM payload bytes are not hex.
+        # Valid CAN/mode/PID shape, but payload bytes are not hex.
+        if normalized_cmd == "0105":
+            return "7E8 03 41 05 GG"
         return "7E8 04 41 0C GG HH"
     if mode == "random":
         return garbage_response(random.choice([
@@ -864,7 +834,7 @@ def garbage_response(mode: str) -> str:
             "bad_payload",
             "no_data",
             "searching",
-        ]))
+        ]), normalized_cmd)
     return "NO DATA"
 
 def injected_response_mode(normalized_cmd: str):
@@ -912,7 +882,7 @@ def handle_command(cmd: str) -> str:
     injected_mode = injected_response_mode(c)
     if injected_mode:
         print("INJECT:", injected_mode, "for", c)
-        return garbage_response(injected_mode)
+        return garbage_response(injected_mode, c)
 
     # ELM init sequence (expand as needed)
     if c in ("ATZ", "ATE0", "ATL0", "ATS0", "ATH1", "ATSP0"):
@@ -943,18 +913,6 @@ def handle_command(cmd: str) -> str:
 
         A = max(0, min(255, int(coolant_temp) + 40))
         return f"7E8 03 41 05 {A:02X}"
-
-    # Engine oil temperature request (01 5C), A - 40
-    if c == "015C":
-        with state_lock:
-            ign = state["ignition"]
-            oil_temp = state["oil_temp"]
-
-        if not ign:
-            return "NO DATA"
-
-        A = max(0, min(255, int(oil_temp) + 40))
-        return f"7E8 03 41 5C {A:02X}"
 
     return "NO DATA"
 

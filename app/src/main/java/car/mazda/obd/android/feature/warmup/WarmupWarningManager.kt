@@ -3,9 +3,6 @@ package car.mazda.obd.android.feature.warmup
 import car.mazda.obd.android.core.logs.AppLogger
 
 class WarmupWarningManager(
-    private val warmupReadyTempCelsius: Int = 75,
-    private val warmupRpmLimit: Int = 2000,
-    private val overheatTempCelsius: Int = 105,
     private val warmupRepeatIntervalMs: Long = 1_000L,
     private val overheatRepeatIntervalMs: Long = 1_500L,
     private val clock: () -> Long = System::currentTimeMillis,
@@ -13,13 +10,15 @@ class WarmupWarningManager(
     private var lastWarmupWarningAt = 0L
     private var lastOverheatWarningAt = 0L
 
-    fun onEngineData(rpm: Int, oilTempCelsius: Int?): WarmupWarning? {
-        val temp = oilTempCelsius ?: run {
+    fun onEngineData(rpm: Int, coolantTempCelsius: Int?): WarmupWarning? {
+        val temp = coolantTempCelsius ?: run {
             resetWarnings()
             return null
         }
 
-        if (temp >= overheatTempCelsius) {
+        val stage = EngineWarmupGuidance.stageFor(temp)
+
+        if (stage == EngineWarmupStage.Critical) {
             lastWarmupWarningAt = 0L
             return warningIfRepeatIntervalPassed(
                 lastAt = lastOverheatWarningAt,
@@ -29,17 +28,18 @@ class WarmupWarningManager(
             )
         }
 
-        if (temp < warmupReadyTempCelsius && rpm > warmupRpmLimit) {
+        val rpmLimit = stage.recommendedRpmLimit
+        if (rpmLimit != null && rpm > rpmLimit) {
             lastOverheatWarningAt = 0L
             return warningIfRepeatIntervalPassed(
                 lastAt = lastWarmupWarningAt,
                 updateLastAt = { lastWarmupWarningAt = it },
                 repeatIntervalMs = warmupRepeatIntervalMs,
-                warning = WarmupWarning.HighRpmWhileCold(
+                warning = WarmupWarning.HighRpmForTemperature(
                     rpm = rpm,
-                    oilTempCelsius = temp,
-                    rpmLimit = warmupRpmLimit,
-                    readyTempCelsius = warmupReadyTempCelsius,
+                    coolantTempCelsius = temp,
+                    rpmLimit = rpmLimit,
+                    stageTitle = stage.title,
                 ),
             )
         }
@@ -69,18 +69,18 @@ class WarmupWarningManager(
 }
 
 sealed class WarmupWarning(val logMessage: String) {
-    data class HighRpmWhileCold(
+    data class HighRpmForTemperature(
         val rpm: Int,
-        val oilTempCelsius: Int,
+        val coolantTempCelsius: Int,
         val rpmLimit: Int,
-        val readyTempCelsius: Int,
+        val stageTitle: String,
     ) : WarmupWarning(
-        "Warmup warning: rpm=$rpm above $rpmLimit while oil=${oilTempCelsius}C, ready at ${readyTempCelsius}C"
+        "Warmup warning: rpm=$rpm above $rpmLimit while coolant=${coolantTempCelsius}C, stage=$stageTitle"
     )
 
     data class Overheat(
-        val oilTempCelsius: Int,
+        val coolantTempCelsius: Int,
     ) : WarmupWarning(
-        "Critical temperature warning: oil=${oilTempCelsius}C"
+        "Critical temperature warning: coolant=${coolantTempCelsius}C"
     )
 }

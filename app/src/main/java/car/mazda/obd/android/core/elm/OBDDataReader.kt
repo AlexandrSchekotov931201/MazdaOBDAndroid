@@ -24,9 +24,6 @@ class OBDDataReader(
     fun coolantTemperatureFlow(periodMs: Long): Flow<OBDResponse> =
         requestFlow(periodMs, OBDRequest.EngineCoolantTemperature)
 
-    fun oilTemperatureFlow(periodMs: Long): Flow<OBDResponse> =
-        requestFlow(periodMs, OBDRequest.EngineOilTemperature)
-
     private fun requestFlow(periodMs: Long, request: OBDRequest): Flow<OBDResponse> =
         sessionManager.sessionState
             .flatMapLatest { state ->
