@@ -1,0 +1,4 @@
+interface:
+  display_name: "OBD Read-only Safety"
+  short_description: "Keep OBD/CAN diagnostic work read-only and block unsafe commands."
+  default_prompt: "Use obd-readonly-safety when editing OBD, ELM, CAN, or diagnostic command code."
