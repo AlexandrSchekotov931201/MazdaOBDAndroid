@@ -25,6 +25,11 @@ class MainViewMapper {
             }
             is OBDResponse.NoData -> {
                 when (response) {
+                    is OBDResponse.NoData.CanError -> {
+                        AppLogger.handledError("Handled RPM CAN error: pid=010C raw=${response.raw.compactRaw()}")
+                        EngineRpmSample.NoData
+                    }
+
                     is OBDResponse.NoData.Empty -> {
                         AppLogger.handledError("Handled RPM no data: pid=010C raw=${response.raw.compactRaw()}")
                         EngineRpmSample.NoData
@@ -74,6 +79,11 @@ class MainViewMapper {
             }
             is OBDResponse.NoData -> {
                 when (response) {
+                    is OBDResponse.NoData.CanError -> {
+                        AppLogger.handledError("Handled $errorLogPrefix: pid=$pid adapter=CAN_ERROR raw=${response.raw.compactRaw()}")
+                        EngineTemperatureSample.NoData
+                    }
+
                     is OBDResponse.NoData.Empty,
                     is OBDResponse.NoData.Searching -> EngineTemperatureSample.NoData
 
