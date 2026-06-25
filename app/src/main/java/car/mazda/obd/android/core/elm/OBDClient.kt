@@ -1,5 +1,9 @@
 package car.mazda.obd.android.core.elm
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import car.mazda.obd.android.BuildConfig
 import car.mazda.obd.android.core.elm.entity.ElmCommand
 import car.mazda.obd.android.core.elm.entity.OBDRequest
@@ -22,12 +26,15 @@ import java.net.Socket
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 
-class OBDClient {
+class OBDClient(context: Context? = null) {
 
     private companion object {
         private const val CONNECT_TIMEOUT_MS = 10_000
         private const val READ_TIMEOUT_MS = 2_000
+        private const val PROD_FLAVOR = "prod"
     }
+
+    private val appContext = context?.applicationContext
 
     private var socket: Socket? = null
     private var reader: BufferedReader? = null
@@ -44,7 +51,7 @@ class OBDClient {
         try {
             unlockedRelease()
 
-            val s = Socket()
+            val s = createSocket()
             s.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
             s.soTimeout = READ_TIMEOUT_MS
 
@@ -87,6 +94,32 @@ class OBDClient {
                 message = "Connection error: ${e.message}",
                 cause = e,
             )
+        }
+    }
+
+    private fun createSocket(): Socket {
+        val wifiNetwork = findWifiNetwork()
+        if (wifiNetwork != null) {
+            return wifiNetwork.socketFactory.createSocket()
+        }
+
+        if (BuildConfig.FLAVOR == PROD_FLAVOR) {
+            throw NetworkUnavailableException(
+                "No Wi-Fi network available for OBD adapter. Connect to adapter Wi-Fi and allow using it without internet.",
+            )
+        }
+
+        return Socket()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun findWifiNetwork(): Network? {
+        val connectivityManager = appContext?.getSystemService(ConnectivityManager::class.java)
+            ?: return null
+
+        return connectivityManager.allNetworks.firstOrNull { network ->
+            connectivityManager.getNetworkCapabilities(network)
+                ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
         }
     }
 
