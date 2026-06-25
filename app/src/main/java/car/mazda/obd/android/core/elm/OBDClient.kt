@@ -23,6 +23,7 @@ import java.net.ConnectException
 import java.net.InetSocketAddress
 import java.net.NoRouteToHostException
 import java.net.Socket
+import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 
@@ -80,6 +81,12 @@ class OBDClient(context: Context? = null) {
             unlockedRelease()
             throw AdapterUnreachableException(
                 message = "Could not connect to $host:$port: ${e.message}",
+                cause = e,
+            )
+        } catch (e: SocketException) {
+            unlockedRelease()
+            throw NetworkUnavailableException(
+                message = "Could not route OBD socket over Wi-Fi: ${e.message}",
                 cause = e,
             )
         } catch (e: SecurityException) {
