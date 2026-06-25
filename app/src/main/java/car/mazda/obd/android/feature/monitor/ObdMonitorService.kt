@@ -1,0 +1,348 @@
+package car.mazda.obd.android.feature.monitor
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.os.IBinder
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import car.mazda.obd.android.R
+import car.mazda.obd.android.core.elm.OBDClient
+import car.mazda.obd.android.core.elm.OBDDataReader
+import car.mazda.obd.android.core.elm.OBDSessionManager
+import car.mazda.obd.android.core.elm.OBDSessionState
+import car.mazda.obd.android.core.logs.AppLogger
+import car.mazda.obd.android.core.sound.SoundPatterns
+import car.mazda.obd.android.core.sound.SoundPlayer
+import car.mazda.obd.android.core.sound.SpeechPlayer
+import car.mazda.obd.android.feature.dashboard.mapper.MainViewMapper
+import car.mazda.obd.android.feature.trip.EngineRpmSample
+import car.mazda.obd.android.feature.trip.TripState
+import car.mazda.obd.android.feature.trip.TripStateManager
+import car.mazda.obd.android.feature.trip.summary.TripSummaryRepository
+import car.mazda.obd.android.feature.trip.summary.TripSummaryTracker
+import car.mazda.obd.android.feature.warmup.EngineTemperatureSample
+import car.mazda.obd.android.feature.warmup.EngineWarmupGuidance
+import car.mazda.obd.android.feature.warmup.WarmupWarning
+import car.mazda.obd.android.feature.warmup.WarmupWarningManager
+import car.mazda.obd.android.ui.MainActivity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+class ObdMonitorService : Service() {
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val client = OBDClient()
+    private val sessionManager = OBDSessionManager(client, scope)
+    private val dataReader = OBDDataReader(client = client, sessionManager = sessionManager)
+    private val viewMapper = MainViewMapper()
+    private val tripStateManager = TripStateManager(scope)
+    private val warmupWarningManager = WarmupWarningManager()
+    private val tripSummaryTracker = TripSummaryTracker()
+    private val soundPlayer = SoundPlayer()
+
+    private lateinit var speechPlayer: SpeechPlayer
+    private lateinit var tripSummaryRepository: TripSummaryRepository
+    private lateinit var notificationManager: NotificationManager
+    private lateinit var overlayController: ObdOverlayController
+    private lateinit var preferences: ObdMonitorPreferences
+
+    private var latestRpm = 0
+    private var latestValidRpm = 0
+    private var latestValidRpmAtMs = 0L
+    private var latestCoolantTemp: Int? = null
+    private var monitorJob: Job? = null
+    private var notificationJob: Job? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        speechPlayer = SpeechPlayer(applicationContext)
+        tripSummaryRepository = TripSummaryRepository(applicationContext)
+        notificationManager = getSystemService(NotificationManager::class.java)
+        overlayController = ObdOverlayController(applicationContext)
+        preferences = ObdMonitorPreferences(applicationContext)
+        createNotificationChannel()
+        ObdMonitorStateStore.update {
+            it.copy(
+                floatingWidgetEnabled = preferences.floatingWidgetEnabled,
+                floatingWidgetSize = preferences.floatingWidgetSize,
+                autoStartEnabled = preferences.autoStartEnabled,
+            )
+        }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_STOP -> {
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            else -> startMonitoring()
+        }
+        return START_STICKY
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onDestroy() {
+        monitorJob?.cancel()
+        notificationJob?.cancel()
+        runBlocking(Dispatchers.IO + NonCancellable) {
+            sessionManager.stopSession()
+        }
+        overlayController.hide()
+        speechPlayer.stop()
+        soundPlayer.release()
+        scope.cancel()
+        ObdMonitorStateStore.stop()
+        ObdStatusWidgetProvider.updateAll(applicationContext)
+        super.onDestroy()
+    }
+
+    private fun startMonitoring() {
+        if (monitorJob?.isActive == true) return
+
+        ObdMonitorStateStore.update {
+            it.copy(isRunning = true, connectionText = "Connecting to adapter...")
+        }
+        startForeground(NOTIFICATION_ID, buildNotification(ObdMonitorStateStore.state.value))
+
+        monitorJob = scope.launch {
+            launch { observeSessionState() }
+            launch { observeEngineRpmState() }
+            launch { observeCoolantTemperatureState() }
+            launch { observeTripState() }
+            launch { keepInitialSessionConnecting() }
+        }
+
+        notificationJob = scope.launch {
+            ObdMonitorStateStore.state.collect { state ->
+                notificationManager.notify(NOTIFICATION_ID, buildNotification(state))
+                overlayController.update(state)
+                ObdStatusWidgetProvider.updateAll(applicationContext)
+            }
+        }
+    }
+
+    private suspend fun observeSessionState() {
+        sessionManager.sessionState
+            .map { state ->
+                when (state) {
+                    is OBDSessionState.Idle,
+                    is OBDSessionState.ConnectingSocket -> "Connecting to socket..."
+                    is OBDSessionState.InitializingEcu -> "Initializing ECU..."
+                    is OBDSessionState.Ready -> "Ready"
+                    is OBDSessionState.Error -> {
+                        "Connection error: ${state.throwable.message ?: state.throwable.toString()}"
+                    }
+                }
+            }
+            .distinctUntilChanged()
+            .collect { connectionText ->
+                ObdMonitorStateStore.update { it.copy(connectionText = connectionText) }
+            }
+    }
+
+    private suspend fun keepInitialSessionConnecting() {
+        tripSummaryRepository.refreshRecentTrips()
+
+        while (scope.isActive && sessionManager.sessionState.value !is OBDSessionState.Ready) {
+            val error = runCatching { sessionManager.startSession() }
+                .exceptionOrNull()
+
+            if (error == null) return
+            if (error is CancellationException) throw error
+
+            AppLogger.log("Initial OBD connection retry in ${INITIAL_RECONNECT_DELAY_MS}ms")
+            kotlinx.coroutines.delay(INITIAL_RECONNECT_DELAY_MS)
+        }
+    }
+
+    private suspend fun observeTripState() {
+        var previousState: TripState = TripState.Idle
+
+        tripStateManager.tripState.collect { state ->
+            tripSummaryTracker.onTripStateChanged(state)?.let { summary ->
+                tripSummaryRepository.saveTrip(summary)
+                ObdMonitorStateStore.update {
+                    it.copy(tripSummaryVersion = it.tripSummaryVersion + 1)
+                }
+            }
+            ObdMonitorStateStore.update { it.copy(activeTrip = tripSummaryTracker.activeTrip.value) }
+
+            when (state) {
+                is TripState.Active -> {
+                    if (previousState is TripState.Idle) {
+                        AppLogger.log("Play greeting sound")
+                        speechPlayer.greetingSound()
+                    }
+                }
+                is TripState.Idle -> {
+                    if (previousState is TripState.Finishing) {
+                        AppLogger.log("Play goodbye sound")
+                        soundPlayer.playPattern(SoundPatterns.TripleLongAlert)
+                    }
+                }
+                is TripState.Finishing -> Unit
+            }
+            previousState = state
+        }
+    }
+
+    private suspend fun observeEngineRpmState() {
+        dataReader.rpmFlow(periodMs = RPM_POLL_PERIOD_MS)
+            .map(viewMapper::mapEngineRpm)
+            .catch { t -> AppLogger.log("rpmFlow error: ${t.message}") }
+            .collect { sample ->
+                latestRpm = sample.displayRpm()
+                ObdMonitorStateStore.update { it.copy(rpm = latestRpm) }
+                tripStateManager.onRpmSample(sample)
+                tripSummaryTracker.onTripStateChanged(tripStateManager.tripState.value)
+                if (sample is EngineRpmSample.Value) {
+                    tripSummaryTracker.onRpmChanged(sample.rpm)
+                }
+                checkWarmupWarning()
+            }
+    }
+
+    private suspend fun observeCoolantTemperatureState() {
+        dataReader.coolantTemperatureFlow(periodMs = COOLANT_POLL_PERIOD_MS)
+            .map(viewMapper::mapEngineCoolantTemperature)
+            .catch { t -> AppLogger.log("coolantTemperatureFlow error: ${t.message}") }
+            .collect { sample ->
+                latestCoolantTemp = sample.displayTemperature()
+                ObdMonitorStateStore.update {
+                    it.copy(
+                        coolantTemp = latestCoolantTemp,
+                        warmupText = sample.warmupText(),
+                    )
+                }
+                tripSummaryTracker.onEngineTemperatureChanged(latestCoolantTemp)
+                checkWarmupWarning()
+            }
+    }
+
+    private suspend fun checkWarmupWarning() {
+        when (warmupWarningManager.onEngineData(latestRpm, latestCoolantTemp)) {
+            is WarmupWarning.HighRpmForTemperature -> {
+                AppLogger.log("Play warmup warning sound")
+                soundPlayer.playPattern(SoundPatterns.TripleShortAlert)
+            }
+            is WarmupWarning.Overheat -> {
+                AppLogger.log("Play overheat warning sound")
+                soundPlayer.playPattern(SoundPatterns.RapidAlert)
+            }
+            null -> Unit
+        }
+    }
+
+    private fun buildNotification(state: ObdMonitorState): Notification {
+        val openIntent = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val stopIntent = PendingIntent.getService(
+            this,
+            1,
+            Intent(this, ObdMonitorService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val coolant = state.coolantTemp?.let { "${it}C" } ?: "--"
+
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("Mazda OBD monitoring")
+            .setContentText("${state.connectionText} | ${state.rpm} RPM | Coolant $coolant")
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText("${state.connectionText}\nRPM: ${state.rpm}\nCoolant: $coolant\n${state.warmupText}")
+            )
+            .setContentIntent(openIntent)
+            .addAction(R.mipmap.ic_launcher, "Stop", stopIntent)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "OBD monitoring",
+            NotificationManager.IMPORTANCE_LOW,
+        )
+        notificationManager.createNotificationChannel(channel)
+    }
+
+    private fun EngineRpmSample.displayRpm(): Int {
+        val now = System.currentTimeMillis()
+        return when (this) {
+            is EngineRpmSample.Value -> {
+                latestValidRpm = rpm
+                latestValidRpmAtMs = now
+                rpm
+            }
+            is EngineRpmSample.NoData,
+            is EngineRpmSample.ConnectionError -> {
+                if (now - latestValidRpmAtMs <= RPM_STALE_HOLD_MS) latestValidRpm else 0
+            }
+        }
+    }
+
+    private fun EngineTemperatureSample.displayTemperature(): Int? =
+        when (this) {
+            is EngineTemperatureSample.Value -> celsius
+            is EngineTemperatureSample.NoData,
+            is EngineTemperatureSample.ConnectionError -> null
+        }
+
+    private fun EngineTemperatureSample.warmupText(): String =
+        when (this) {
+            is EngineTemperatureSample.Value -> {
+                val stage = EngineWarmupGuidance.stageFor(celsius)
+                "Coolant ${celsius}C - ${stage.detail}"
+            }
+            is EngineTemperatureSample.NoData -> "Coolant temp: --"
+            is EngineTemperatureSample.ConnectionError -> "Coolant temp: connection error"
+        }
+
+    companion object {
+        private const val CHANNEL_ID = "obd_monitoring"
+        private const val NOTIFICATION_ID = 42
+        private const val ACTION_STOP = "car.mazda.obd.android.action.STOP_OBD_MONITOR"
+        private const val RPM_STALE_HOLD_MS = 2_500L
+        private const val RPM_POLL_PERIOD_MS = 250L
+        private const val COOLANT_POLL_PERIOD_MS = 1_000L
+        private const val INITIAL_RECONNECT_DELAY_MS = 10_000L
+
+        fun start(context: Context) {
+            val intent = Intent(context, ObdMonitorService::class.java)
+            ContextCompat.startForegroundService(context, intent)
+        }
+
+        fun stop(context: Context) {
+            context.startService(
+                Intent(context, ObdMonitorService::class.java).setAction(ACTION_STOP)
+            )
+        }
+    }
+}

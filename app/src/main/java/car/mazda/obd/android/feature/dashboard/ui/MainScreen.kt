@@ -25,7 +25,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import car.mazda.obd.android.feature.dashboard.MainViewModel
-import car.mazda.obd.android.feature.dashboard.ui.MazdaStyleTachometer
 import car.mazda.obd.android.feature.warmup.EngineWarmupGuidance
 import car.mazda.obd.android.feature.warmup.EngineWarmupStage
 import car.mazda.obd.android.ui.AppToolbar

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/obd_widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#101820"
+    android:orientation="vertical"
+    android:padding="14dp">
+
+    <TextView
+        android:id="@+id/obd_widget_connection"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:text="Monitoring stopped"
+        android:textColor="#86EFAC"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/obd_widget_rpm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="0"
+            android:textColor="#FFFFFF"
+            android:textSize="34sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="RPM"
+            android:textColor="#CBD5E1"
+            android:textSize="12sp" />
+
+        <ProgressBar
+            android:id="@+id/obd_widget_rpm_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="8dp"
+            android:layout_marginTop="8dp"
+            android:max="8000"
+            android:progress="0" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/obd_widget_coolant"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:text="Coolant --"
+        android:textColor="#E2E8F0"
+        android:textSize="13sp" />
+
+    <TextView
+        android:id="@+id/obd_widget_warmup"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:text="Coolant temp: --"
+        android:textColor="#CBD5E1"
+        android:textSize="12sp" />
+</LinearLayout>
