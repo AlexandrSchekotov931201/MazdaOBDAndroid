@@ -12,6 +12,7 @@ class MainViewModelFactory(
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
             return modelClass.cast(
                 MainViewModel(
+                    context = context.applicationContext,
                     tripSummaryRepository = TripSummaryRepository(context),
                 )
             )

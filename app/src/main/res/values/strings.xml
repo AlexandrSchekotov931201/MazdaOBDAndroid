@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">MazdaOBD Android</string>
+    <string name="obd_status_widget_description">Mazda OBD status</string>
 </resources>
