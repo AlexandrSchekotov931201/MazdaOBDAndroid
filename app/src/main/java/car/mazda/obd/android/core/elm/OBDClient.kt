@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import car.mazda.obd.android.BuildConfig
 import car.mazda.obd.android.core.elm.entity.ElmCommand
 import car.mazda.obd.android.core.elm.entity.OBDRequest
@@ -14,8 +15,10 @@ import car.mazda.obd.android.core.elm.exception.NetworkUnavailableException
 import car.mazda.obd.android.core.elm.exception.ProtocolException
 import car.mazda.obd.android.core.elm.exception.UnknownObdException
 import car.mazda.obd.android.core.elm.mapper.OBDDataMapper
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
@@ -26,12 +29,15 @@ import java.net.Socket
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.resume
 
 class OBDClient(context: Context? = null) {
 
     private companion object {
         private const val CONNECT_TIMEOUT_MS = 10_000
         private const val READ_TIMEOUT_MS = 2_000
+        private const val NETWORK_REQUEST_TIMEOUT_MS = 3_000L
         private const val PROD_FLAVOR = "prod"
     }
 
@@ -104,8 +110,8 @@ class OBDClient(context: Context? = null) {
         }
     }
 
-    private fun createSocket(): Socket {
-        val wifiNetwork = findWifiNetwork()
+    private suspend fun createSocket(): Socket {
+        val wifiNetwork = requestWifiNetwork() ?: findWifiNetwork()
         if (wifiNetwork != null) {
             return wifiNetwork.socketFactory.createSocket()
         }
@@ -117,6 +123,48 @@ class OBDClient(context: Context? = null) {
         }
 
         return Socket()
+    }
+
+    private suspend fun requestWifiNetwork(): Network? {
+        val connectivityManager = appContext?.getSystemService(ConnectivityManager::class.java)
+            ?: return null
+        val request = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .build()
+
+        return withTimeoutOrNull(NETWORK_REQUEST_TIMEOUT_MS) {
+            suspendCancellableCoroutine { continuation ->
+                val completed = AtomicBoolean(false)
+
+                fun complete(callback: ConnectivityManager.NetworkCallback, network: Network?) {
+                    if (!completed.compareAndSet(false, true)) return
+                    runCatching { connectivityManager.unregisterNetworkCallback(callback) }
+                    continuation.resume(network)
+                }
+
+                val callback = object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) {
+                        complete(this, network)
+                    }
+
+                    override fun onUnavailable() {
+                        complete(this, null)
+                    }
+                }
+
+                continuation.invokeOnCancellation {
+                    if (completed.compareAndSet(false, true)) {
+                        runCatching { connectivityManager.unregisterNetworkCallback(callback) }
+                    }
+                }
+
+                try {
+                    connectivityManager.requestNetwork(request, callback)
+                } catch (t: Throwable) {
+                    complete(callback, null)
+                }
+            }
+        }
     }
 
     @Suppress("DEPRECATION")
