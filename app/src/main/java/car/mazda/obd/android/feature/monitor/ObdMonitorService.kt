@@ -138,20 +138,27 @@ class ObdMonitorService : Service() {
         }
 
         notificationJob = scope.launch {
-            var lastUpdateAtMs = 0L
+            var lastNotificationUpdateAtMs = 0L
             var lastState: ObdMonitorState? = null
             ObdMonitorStateStore.state.collect { state ->
                 val now = SystemClock.elapsedRealtime()
-                val shouldUpdate = state.needsImmediateStatusUpdate(lastState) ||
-                    now - lastUpdateAtMs >= STATUS_SURFACE_UPDATE_PERIOD_MS
+                val shouldUpdateNotification = state.needsImmediateStatusUpdate(lastState) ||
+                    now - lastNotificationUpdateAtMs >= NOTIFICATION_UPDATE_PERIOD_MS
 
-                if (shouldUpdate) {
+                if (shouldUpdateNotification) {
                     notificationManager.notify(NOTIFICATION_ID, buildNotification(state))
-                    overlayController.update(state)
-                    ObdStatusWidgetProvider.updateAll(applicationContext)
-                    lastUpdateAtMs = now
-                    lastState = state
+                    lastNotificationUpdateAtMs = now
                 }
+
+                if (state.shouldUpdateFloatingWidget(lastState)) {
+                    overlayController.update(state)
+                }
+
+                if (!state.isAppForeground) {
+                    ObdStatusWidgetProvider.updateAll(applicationContext)
+                }
+
+                lastState = state
             }
         }
     }
@@ -386,13 +393,21 @@ class ObdMonitorService : Service() {
             floatingWidgetSize != previous.floatingWidgetSize ||
             isAppForeground != previous.isAppForeground
 
+    private fun ObdMonitorState.shouldUpdateFloatingWidget(previous: ObdMonitorState?): Boolean =
+        (!isAppForeground && floatingWidgetEnabled) ||
+            previous == null ||
+            isRunning != previous.isRunning ||
+            floatingWidgetEnabled != previous.floatingWidgetEnabled ||
+            floatingWidgetSize != previous.floatingWidgetSize ||
+            isAppForeground != previous.isAppForeground
+
     companion object {
         private const val CHANNEL_ID = "obd_monitoring"
         private const val NOTIFICATION_ID = 42
         private const val ACTION_STOP = "car.mazda.obd.android.action.STOP_OBD_MONITOR"
         private const val ACTION_RESTART = "car.mazda.obd.android.action.RESTART_OBD_MONITOR"
         private const val RPM_STALE_HOLD_MS = 2_500L
-        private const val STATUS_SURFACE_UPDATE_PERIOD_MS = 1_000L
+        private const val NOTIFICATION_UPDATE_PERIOD_MS = 1_000L
         private const val INITIAL_RECONNECT_DELAY_MS = 10_000L
 
         fun start(context: Context) {
