@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -48,15 +49,15 @@ import kotlinx.coroutines.runBlocking
 class ObdMonitorService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val client = OBDClient()
-    private val sessionManager = OBDSessionManager(client, scope)
-    private val dataReader = OBDDataReader(client = client, sessionManager = sessionManager)
     private val viewMapper = MainViewMapper()
     private val tripStateManager = TripStateManager(scope)
     private val warmupWarningManager = WarmupWarningManager()
     private val tripSummaryTracker = TripSummaryTracker()
     private val soundPlayer = SoundPlayer()
 
+    private lateinit var client: OBDClient
+    private lateinit var sessionManager: OBDSessionManager
+    private lateinit var dataReader: OBDDataReader
     private lateinit var speechPlayer: SpeechPlayer
     private lateinit var tripSummaryRepository: TripSummaryRepository
     private lateinit var notificationManager: NotificationManager
@@ -72,6 +73,12 @@ class ObdMonitorService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        val connectivityManager = requireNotNull(getSystemService(ConnectivityManager::class.java)) {
+            "ConnectivityManager is required for OBD Wi-Fi routing"
+        }
+        client = OBDClient(connectivityManager)
+        sessionManager = OBDSessionManager(client, scope)
+        dataReader = OBDDataReader(client = client, sessionManager = sessionManager)
         speechPlayer = SpeechPlayer(applicationContext)
         tripSummaryRepository = TripSummaryRepository(applicationContext)
         notificationManager = getSystemService(NotificationManager::class.java)
