@@ -44,6 +44,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 
 class ObdMonitorService : Service() {
 
@@ -74,15 +75,7 @@ class ObdMonitorService : Service() {
     override fun onCreate() {
         super.onCreate()
         preferences = ObdMonitorPreferences(applicationContext)
-        connectionSettings = preferences.connectionSettings
-        client = OBDClient(applicationContext, connectionSettings)
-        sessionManager = OBDSessionManager(client, scope)
-        dataReader = OBDDataReader(
-            client = client,
-            sessionManager = sessionManager,
-            settings = connectionSettings,
-        )
-        tripStateManager = TripStateManager(scope, engineOffDelayMs = connectionSettings.engineOffDelayMs)
+        loadConnectionComponents()
         speechPlayer = SpeechPlayer(applicationContext)
         tripSummaryRepository = TripSummaryRepository(applicationContext)
         notificationManager = getSystemService(NotificationManager::class.java)
@@ -104,6 +97,7 @@ class ObdMonitorService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
+            ACTION_RESTART -> restartMonitoring()
             else -> startMonitoring()
         }
         return START_STICKY
@@ -127,12 +121,12 @@ class ObdMonitorService : Service() {
     }
 
     private fun startMonitoring() {
-        if (monitorJob?.isActive == true) return
-
         ObdMonitorStateStore.update {
             it.copy(isRunning = true, connectionText = "Connecting to adapter...")
         }
         startForeground(NOTIFICATION_ID, buildNotification(ObdMonitorStateStore.state.value))
+
+        if (monitorJob?.isActive == true) return
 
         monitorJob = scope.launch {
             launch { observeSessionState() }
@@ -149,6 +143,43 @@ class ObdMonitorService : Service() {
                 ObdStatusWidgetProvider.updateAll(applicationContext)
             }
         }
+    }
+
+    private fun restartMonitoring() {
+        ObdMonitorStateStore.update {
+            it.copy(isRunning = true, connectionText = "Applying OBD settings...")
+        }
+        startForeground(NOTIFICATION_ID, buildNotification(ObdMonitorStateStore.state.value))
+
+        monitorJob?.cancel()
+        notificationJob?.cancel()
+        monitorJob = null
+        notificationJob = null
+
+        scope.launch {
+            sessionManager.stopSession()
+            withContext(Dispatchers.Main) {
+                loadConnectionComponents()
+                latestRpm = 0
+                latestValidRpm = 0
+                latestValidRpmAtMs = 0L
+                latestCoolantTemp = null
+                startMonitoring()
+            }
+        }
+    }
+
+    private fun loadConnectionComponents() {
+        connectionSettings = preferences.connectionSettings
+        client = OBDClient(applicationContext, connectionSettings)
+        sessionManager = OBDSessionManager(client, scope)
+        dataReader = OBDDataReader(
+            client = client,
+            sessionManager = sessionManager,
+            settings = connectionSettings,
+        )
+        tripStateManager = TripStateManager(scope, engineOffDelayMs = connectionSettings.engineOffDelayMs)
+        ObdMonitorStateStore.update { it.copy(connectionSettings = connectionSettings) }
     }
 
     private suspend fun observeSessionState() {
@@ -340,6 +371,7 @@ class ObdMonitorService : Service() {
         private const val CHANNEL_ID = "obd_monitoring"
         private const val NOTIFICATION_ID = 42
         private const val ACTION_STOP = "car.mazda.obd.android.action.STOP_OBD_MONITOR"
+        private const val ACTION_RESTART = "car.mazda.obd.android.action.RESTART_OBD_MONITOR"
         private const val RPM_STALE_HOLD_MS = 2_500L
         private const val INITIAL_RECONNECT_DELAY_MS = 10_000L
 
@@ -352,6 +384,11 @@ class ObdMonitorService : Service() {
             context.startService(
                 Intent(context, ObdMonitorService::class.java).setAction(ACTION_STOP)
             )
+        }
+
+        fun restart(context: Context) {
+            val intent = Intent(context, ObdMonitorService::class.java).setAction(ACTION_RESTART)
+            ContextCompat.startForegroundService(context, intent)
         }
     }
 }
