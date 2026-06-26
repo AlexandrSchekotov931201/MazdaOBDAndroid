@@ -19,7 +19,6 @@ object ObdMonitorStateStore {
                 floatingWidgetEnabled = current.floatingWidgetEnabled,
                 floatingWidgetSize = current.floatingWidgetSize,
                 autoStartEnabled = current.autoStartEnabled,
-                connectionSettings = current.connectionSettings,
                 isAppForeground = current.isAppForeground,
                 tripSummaryVersion = current.tripSummaryVersion,
             )

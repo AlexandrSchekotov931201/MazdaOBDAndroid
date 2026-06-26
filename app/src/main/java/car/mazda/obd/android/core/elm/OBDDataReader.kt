@@ -5,7 +5,6 @@ import car.mazda.obd.android.core.elm.entity.OBDResponse
 import car.mazda.obd.android.core.elm.exception.AdapterUnreachableException
 import car.mazda.obd.android.core.elm.exception.LostConnectionException
 import car.mazda.obd.android.core.elm.exception.NetworkUnavailableException
-import car.mazda.obd.android.feature.monitor.ObdConnectionSettings
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -21,8 +20,11 @@ import kotlin.coroutines.cancellation.CancellationException
 class OBDDataReader(
     private val client: OBDClient,
     private val sessionManager: OBDSessionManager,
-    private val settings: ObdConnectionSettings = ObdConnectionSettings.Default,
 ) {
+    private companion object {
+        private const val ADAPTER_TIMEOUT_RECONNECT_THRESHOLD = 3
+    }
+
     private val reconnectStateLock = Any()
     private var consecutiveAdapterTimeouts = 0
 
@@ -65,7 +67,7 @@ class OBDDataReader(
     private fun registerAdapterTimeout(): Boolean =
         synchronized(reconnectStateLock) {
             consecutiveAdapterTimeouts += 1
-            consecutiveAdapterTimeouts >= settings.adapterTimeoutReconnectThreshold
+            consecutiveAdapterTimeouts >= ADAPTER_TIMEOUT_RECONNECT_THRESHOLD
         }
 
     private fun resetReconnectState() {

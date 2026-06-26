@@ -15,7 +15,6 @@ import car.mazda.obd.android.core.elm.exception.NetworkUnavailableException
 import car.mazda.obd.android.core.elm.exception.ProtocolException
 import car.mazda.obd.android.core.elm.exception.UnknownObdException
 import car.mazda.obd.android.core.elm.mapper.OBDDataMapper
-import car.mazda.obd.android.feature.monitor.ObdConnectionSettings
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -33,12 +32,12 @@ import java.net.UnknownHostException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 
-class OBDClient(
-    context: Context? = null,
-    private val settings: ObdConnectionSettings = ObdConnectionSettings.Default,
-) {
+class OBDClient(context: Context? = null) {
 
     private companion object {
+        private const val CONNECT_TIMEOUT_MS = 10_000
+        private const val READ_TIMEOUT_MS = 2_000
+        private const val NETWORK_REQUEST_TIMEOUT_MS = 3_000L
         private const val PROD_FLAVOR = "prod"
     }
 
@@ -60,8 +59,8 @@ class OBDClient(
             unlockedRelease()
 
             val s = createSocket()
-            s.connect(InetSocketAddress(host, port), settings.connectTimeoutMs)
-            s.soTimeout = settings.readTimeoutMs
+            s.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+            s.soTimeout = READ_TIMEOUT_MS
 
             socket = s
             reader = BufferedReader(InputStreamReader(s.getInputStream()))
@@ -133,7 +132,7 @@ class OBDClient(
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .build()
 
-        return withTimeoutOrNull(settings.networkRequestTimeoutMs) {
+        return withTimeoutOrNull(NETWORK_REQUEST_TIMEOUT_MS) {
             suspendCancellableCoroutine { continuation ->
                 val completed = AtomicBoolean(false)
 

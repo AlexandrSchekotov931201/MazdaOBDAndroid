@@ -49,6 +49,7 @@ class ObdMonitorService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val viewMapper = MainViewMapper()
+    private val tripStateManager = TripStateManager(scope)
     private val warmupWarningManager = WarmupWarningManager()
     private val tripSummaryTracker = TripSummaryTracker()
     private val soundPlayer = SoundPlayer()
@@ -56,13 +57,11 @@ class ObdMonitorService : Service() {
     private lateinit var client: OBDClient
     private lateinit var sessionManager: OBDSessionManager
     private lateinit var dataReader: OBDDataReader
-    private lateinit var tripStateManager: TripStateManager
     private lateinit var speechPlayer: SpeechPlayer
     private lateinit var tripSummaryRepository: TripSummaryRepository
     private lateinit var notificationManager: NotificationManager
     private lateinit var overlayController: ObdOverlayController
     private lateinit var preferences: ObdMonitorPreferences
-    private lateinit var connectionSettings: ObdConnectionSettings
 
     private var latestRpm = 0
     private var latestValidRpm = 0
@@ -73,27 +72,20 @@ class ObdMonitorService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        preferences = ObdMonitorPreferences(applicationContext)
-        connectionSettings = preferences.connectionSettings
-        client = OBDClient(applicationContext, connectionSettings)
+        client = OBDClient(applicationContext)
         sessionManager = OBDSessionManager(client, scope)
-        dataReader = OBDDataReader(
-            client = client,
-            sessionManager = sessionManager,
-            settings = connectionSettings,
-        )
-        tripStateManager = TripStateManager(scope, engineOffDelayMs = connectionSettings.engineOffDelayMs)
+        dataReader = OBDDataReader(client = client, sessionManager = sessionManager)
         speechPlayer = SpeechPlayer(applicationContext)
         tripSummaryRepository = TripSummaryRepository(applicationContext)
         notificationManager = getSystemService(NotificationManager::class.java)
         overlayController = ObdOverlayController(applicationContext)
+        preferences = ObdMonitorPreferences(applicationContext)
         createNotificationChannel()
         ObdMonitorStateStore.update {
             it.copy(
                 floatingWidgetEnabled = preferences.floatingWidgetEnabled,
                 floatingWidgetSize = preferences.floatingWidgetSize,
                 autoStartEnabled = preferences.autoStartEnabled,
-                connectionSettings = connectionSettings,
             )
         }
     }
@@ -217,7 +209,7 @@ class ObdMonitorService : Service() {
     }
 
     private suspend fun observeEngineRpmState() {
-        dataReader.rpmFlow(periodMs = connectionSettings.rpmPollPeriodMs)
+        dataReader.rpmFlow(periodMs = RPM_POLL_PERIOD_MS)
             .map(viewMapper::mapEngineRpm)
             .catch { t -> AppLogger.log("rpmFlow error: ${t.message}") }
             .collect { sample ->
@@ -233,7 +225,7 @@ class ObdMonitorService : Service() {
     }
 
     private suspend fun observeCoolantTemperatureState() {
-        dataReader.coolantTemperatureFlow(periodMs = connectionSettings.coolantPollPeriodMs)
+        dataReader.coolantTemperatureFlow(periodMs = COOLANT_POLL_PERIOD_MS)
             .map(viewMapper::mapEngineCoolantTemperature)
             .catch { t -> AppLogger.log("coolantTemperatureFlow error: ${t.message}") }
             .collect { sample ->
@@ -341,6 +333,8 @@ class ObdMonitorService : Service() {
         private const val NOTIFICATION_ID = 42
         private const val ACTION_STOP = "car.mazda.obd.android.action.STOP_OBD_MONITOR"
         private const val RPM_STALE_HOLD_MS = 2_500L
+        private const val RPM_POLL_PERIOD_MS = 500L
+        private const val COOLANT_POLL_PERIOD_MS = 2_000L
         private const val INITIAL_RECONNECT_DELAY_MS = 10_000L
 
         fun start(context: Context) {
