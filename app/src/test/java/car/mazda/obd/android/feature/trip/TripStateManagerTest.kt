@@ -17,7 +17,6 @@ class TripStateManagerTest {
         val manager = TripStateManager(
             scope = scope,
             engineOffDelayMs = 20L,
-            connectionLostDelayMs = 50L,
         )
 
         try {
@@ -40,7 +39,6 @@ class TripStateManagerTest {
         val manager = TripStateManager(
             scope = scope,
             engineOffDelayMs = 50L,
-            connectionLostDelayMs = 50L,
         )
 
         try {
@@ -57,12 +55,11 @@ class TripStateManagerTest {
     }
 
     @Test
-    fun finishesTripAfterConnectionErrorDelay() = runBlocking {
+    fun finishesTripAfterEngineOffDelayWhenConnectionErrorHidesRpm() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val manager = TripStateManager(
             scope = scope,
-            engineOffDelayMs = 50L,
-            connectionLostDelayMs = 20L,
+            engineOffDelayMs = 20L,
         )
 
         try {
