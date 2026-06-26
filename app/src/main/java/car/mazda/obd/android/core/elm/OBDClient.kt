@@ -1,6 +1,5 @@
 package car.mazda.obd.android.core.elm
 
-import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -32,7 +31,9 @@ import java.net.UnknownHostException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 
-class OBDClient(context: Context? = null) {
+class OBDClient(
+    private val connectivityManager: ConnectivityManager? = null,
+) {
 
     private companion object {
         private const val CONNECT_TIMEOUT_MS = 10_000
@@ -40,8 +41,6 @@ class OBDClient(context: Context? = null) {
         private const val NETWORK_REQUEST_TIMEOUT_MS = 3_000L
         private const val PROD_FLAVOR = "prod"
     }
-
-    private val appContext = context?.applicationContext
 
     private var socket: Socket? = null
     private var reader: BufferedReader? = null
@@ -126,8 +125,7 @@ class OBDClient(context: Context? = null) {
     }
 
     private suspend fun requestWifiNetwork(): Network? {
-        val connectivityManager = appContext?.getSystemService(ConnectivityManager::class.java)
-            ?: return null
+        val connectivityManager = connectivityManager ?: return null
         val request = NetworkRequest.Builder()
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .build()
@@ -169,8 +167,7 @@ class OBDClient(context: Context? = null) {
 
     @Suppress("DEPRECATION")
     private fun findWifiNetwork(): Network? {
-        val connectivityManager = appContext?.getSystemService(ConnectivityManager::class.java)
-            ?: return null
+        val connectivityManager = connectivityManager ?: return null
 
         return connectivityManager.allNetworks.firstOrNull { network ->
             connectivityManager.getNetworkCapabilities(network)

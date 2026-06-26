@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -72,7 +73,7 @@ class ObdMonitorService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        client = OBDClient(applicationContext)
+        client = OBDClient(getSystemService(ConnectivityManager::class.java))
         sessionManager = OBDSessionManager(client, scope)
         dataReader = OBDDataReader(client = client, sessionManager = sessionManager)
         speechPlayer = SpeechPlayer(applicationContext)
