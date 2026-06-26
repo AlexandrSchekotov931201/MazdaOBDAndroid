@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 class TripStateManager(
     private val scope: CoroutineScope,
     private val engineOffDelayMs: Long = 5000L,
+    private val connectionLostDelayMs: Long = 5000L,
 ) {
     private val _tripState = MutableStateFlow<TripState>(TripState.Idle)
     val tripState: StateFlow<TripState> = _tripState
@@ -27,22 +28,33 @@ class TripStateManager(
                 }
             }
             is EngineRpmSample.NoData -> onRpmUnavailableCandidate()
-            is EngineRpmSample.ConnectionError -> onRpmUnavailableCandidate(sample.throwable)
+            is EngineRpmSample.ConnectionError -> onConnectionProblemCandidate(sample.throwable)
         }
     }
 
-    private fun onRpmUnavailableCandidate(t: Throwable? = null) {
+    private fun onConnectionProblemCandidate(t: Throwable) {
         if (_tripState.value !is TripState.Active) return
         if (finishJob?.isActive == true) return
 
-        val reason = t?.let { "connection problem (${it::class.simpleName})" } ?: "RPM data unavailable"
-        val handledMessage = t?.let {
-            "Handled RPM connection problem; finishing trip unless RPM recovers (${it::class.simpleName})"
-        } ?: "Handled missing RPM sample; finishing trip unless RPM recovers"
-
-        AppLogger.handledError(handledMessage)
+        AppLogger.handledError(
+            "Handled RPM connection problem; finishing trip unless RPM recovers (${t::class.simpleName})"
+        )
         _tripState.value = TripState.Finishing
-        AppLogger.log("Trip finish candidate: $reason")
+        AppLogger.log("Trip finish candidate: connection problem (${t::class.simpleName})")
+        finishJob = scope.launch {
+            delay(connectionLostDelayMs)
+            _tripState.value = TripState.Idle
+            AppLogger.log("Trip finished")
+        }
+    }
+
+    private fun onRpmUnavailableCandidate() {
+        if (_tripState.value !is TripState.Active) return
+        if (finishJob?.isActive == true) return
+
+        AppLogger.handledError("Handled missing RPM sample; finishing trip unless RPM recovers")
+        _tripState.value = TripState.Finishing
+        AppLogger.log("Trip finish candidate: RPM data unavailable")
         finishJob = scope.launch {
             delay(engineOffDelayMs)
             _tripState.value = TripState.Idle
