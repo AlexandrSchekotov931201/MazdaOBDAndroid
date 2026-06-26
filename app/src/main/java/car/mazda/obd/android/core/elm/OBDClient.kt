@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 
 class OBDClient(
-    private val connectivityManager: ConnectivityManager? = null,
+    private val connectivityManager: ConnectivityManager,
 ) {
 
     private companion object {
@@ -125,7 +125,6 @@ class OBDClient(
     }
 
     private suspend fun requestWifiNetwork(): Network? {
-        val connectivityManager = connectivityManager ?: return null
         val request = NetworkRequest.Builder()
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .build()
@@ -167,8 +166,6 @@ class OBDClient(
 
     @Suppress("DEPRECATION")
     private fun findWifiNetwork(): Network? {
-        val connectivityManager = connectivityManager ?: return null
-
         return connectivityManager.allNetworks.firstOrNull { network ->
             connectivityManager.getNetworkCapabilities(network)
                 ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true

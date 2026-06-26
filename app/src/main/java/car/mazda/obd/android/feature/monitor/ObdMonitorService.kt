@@ -73,7 +73,10 @@ class ObdMonitorService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        client = OBDClient(getSystemService(ConnectivityManager::class.java))
+        val connectivityManager = requireNotNull(getSystemService(ConnectivityManager::class.java)) {
+            "ConnectivityManager is required for OBD Wi-Fi routing"
+        }
+        client = OBDClient(connectivityManager)
         sessionManager = OBDSessionManager(client, scope)
         dataReader = OBDDataReader(client = client, sessionManager = sessionManager)
         speechPlayer = SpeechPlayer(applicationContext)
