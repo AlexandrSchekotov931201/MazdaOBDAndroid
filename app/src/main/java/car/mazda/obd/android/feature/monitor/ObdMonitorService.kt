@@ -333,8 +333,8 @@ class ObdMonitorService : Service() {
         private const val NOTIFICATION_ID = 42
         private const val ACTION_STOP = "car.mazda.obd.android.action.STOP_OBD_MONITOR"
         private const val RPM_STALE_HOLD_MS = 2_500L
-        private const val RPM_POLL_PERIOD_MS = 250L
-        private const val COOLANT_POLL_PERIOD_MS = 1_000L
+        private const val RPM_POLL_PERIOD_MS = 500L
+        private const val COOLANT_POLL_PERIOD_MS = 2_000L
         private const val INITIAL_RECONNECT_DELAY_MS = 10_000L
 
         fun start(context: Context) {
