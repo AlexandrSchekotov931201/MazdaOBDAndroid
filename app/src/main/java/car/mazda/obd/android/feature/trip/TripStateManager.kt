@@ -11,16 +11,18 @@ import kotlinx.coroutines.launch
 class TripStateManager(
     private val scope: CoroutineScope,
     private val engineOffDelayMs: Long = 5000L,
-    private val connectionLostDelayMs: Long = 5000L,
+    private val connectionLostDelayMs: Long = 10000L,
 ) {
     private val _tripState = MutableStateFlow<TripState>(TripState.Idle)
     val tripState: StateFlow<TripState> = _tripState
 
     private var finishJob: Job? = null
+    private var rpmUnavailableJob: Job? = null
 
     fun onRpmSample(sample: EngineRpmSample) {
         when (sample) {
             is EngineRpmSample.Value -> {
+                cancelRpmUnavailableCandidate()
                 if (sample.rpm > 0) {
                     onEngineRunning(sample.rpm)
                 } else {
@@ -34,11 +36,21 @@ class TripStateManager(
 
     private fun onConnectionProblemCandidate(t: Throwable) {
         if (_tripState.value !is TripState.Active) return
-        if (finishJob?.isActive == true) return
+        if (finishJob?.isActive == true || rpmUnavailableJob?.isActive == true) return
 
         AppLogger.handledError(
-            "Handled RPM connection problem; finishing trip unless RPM recovers (${t::class.simpleName})"
+            "Handled RPM connection problem; keeping trip active while waiting for recovery (${t::class.simpleName})"
         )
+        rpmUnavailableJob = scope.launch {
+            delay(connectionLostDelayMs)
+            onConnectionProblem(t)
+        }
+    }
+
+    private fun onConnectionProblem(t: Throwable) {
+        if (_tripState.value !is TripState.Active) return
+        if (finishJob?.isActive == true) return
+
         _tripState.value = TripState.Finishing
         AppLogger.log("Trip finish candidate: connection problem (${t::class.simpleName})")
         finishJob = scope.launch {
@@ -50,16 +62,26 @@ class TripStateManager(
 
     private fun onRpmUnavailableCandidate() {
         if (_tripState.value !is TripState.Active) return
-        if (finishJob?.isActive == true) return
+        if (finishJob?.isActive == true || rpmUnavailableJob?.isActive == true) return
 
-        AppLogger.handledError("Handled missing RPM sample; finishing trip unless RPM recovers")
-        _tripState.value = TripState.Finishing
-        AppLogger.log("Trip finish candidate: RPM data unavailable")
-        finishJob = scope.launch {
-            delay(engineOffDelayMs)
-            _tripState.value = TripState.Idle
-            AppLogger.log("Trip finished")
+        AppLogger.handledError("Handled missing RPM sample; keeping trip active while waiting for recovery")
+        rpmUnavailableJob = scope.launch {
+            delay(connectionLostDelayMs)
+            if (_tripState.value !is TripState.Active) return@launch
+
+            _tripState.value = TripState.Finishing
+            AppLogger.log("Trip finish candidate: RPM data unavailable")
+            finishJob = scope.launch {
+                delay(engineOffDelayMs)
+                _tripState.value = TripState.Idle
+                AppLogger.log("Trip finished")
+            }
         }
+    }
+
+    private fun cancelRpmUnavailableCandidate() {
+        rpmUnavailableJob?.cancel()
+        rpmUnavailableJob = null
     }
 
     private fun onEngineRunning(rpm: Int) {
