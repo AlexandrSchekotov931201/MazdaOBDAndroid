@@ -113,7 +113,8 @@ class MainViewModel(
     }
 
     fun applyConnectionSettings() {
-        ObdMonitorService.restart(context)
+        ObdMonitorService.stop(context)
+        ObdMonitorService.start(context)
     }
 
     private fun observeTripSummaryRefreshes() {
