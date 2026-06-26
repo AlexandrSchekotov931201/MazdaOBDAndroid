@@ -701,7 +701,6 @@ def set_debug_fault():
 rpm_test_stop = threading.Event()
 rpm_test_thread = None
 rpm_test_thread_lock = threading.Lock()
-RPM_TEST_STOP_JOIN_TIMEOUT_S = 1.0
 
 def set_rpm_internal(rpm: int, ignition: bool = True):
     rpm = max(0, min(8000, int(rpm)))
@@ -790,19 +789,9 @@ def start_rpm_test():
 
 @app.post("/api/rpm_test/stop")
 def stop_rpm_test():
-    global rpm_test_thread
     rpm_test_stop.set()
-    with rpm_test_thread_lock:
-        thread = rpm_test_thread
-
-    if thread and thread.is_alive():
-        thread.join(timeout=RPM_TEST_STOP_JOIN_TIMEOUT_S)
-
-    with rpm_test_thread_lock:
-        if rpm_test_thread and not rpm_test_thread.is_alive():
-            rpm_test_thread = None
-
-    return jsonify(ok=True, stopped=not (thread and thread.is_alive()))
+    # not joining here (daemon thread), it will exit quickly
+    return jsonify(ok=True)
 
 def elm_prompt(conn, payload: str):
     # Must end with '>' because Android client reads until '>'
