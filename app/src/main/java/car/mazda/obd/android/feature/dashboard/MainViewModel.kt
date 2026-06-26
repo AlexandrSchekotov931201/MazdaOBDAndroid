@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import car.mazda.obd.android.feature.monitor.FloatingWidgetSize
+import car.mazda.obd.android.feature.monitor.ObdConnectionSettings
 import car.mazda.obd.android.feature.monitor.ObdMonitorPreferences
 import car.mazda.obd.android.feature.monitor.ObdMonitorService
 import car.mazda.obd.android.feature.monitor.ObdMonitorStateStore
@@ -55,6 +56,10 @@ class MainViewModel(
         .map { it.autoStartEnabled }
         .stateIn(viewModelScope, SharingStarted.Eagerly, preferences.autoStartEnabled)
 
+    val connectionSettingsState: StateFlow<ObdConnectionSettings> = ObdMonitorStateStore.state
+        .map { it.connectionSettings }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, preferences.connectionSettings)
+
     val activeTripSummaryState: StateFlow<ActiveTripSummary?> = ObdMonitorStateStore.state
         .map { it.activeTrip }
         .stateIn(viewModelScope, SharingStarted.Eagerly, ObdMonitorStateStore.state.value.activeTrip)
@@ -67,6 +72,7 @@ class MainViewModel(
                 floatingWidgetEnabled = preferences.floatingWidgetEnabled,
                 floatingWidgetSize = preferences.floatingWidgetSize,
                 autoStartEnabled = preferences.autoStartEnabled,
+                connectionSettings = preferences.connectionSettings,
             )
         }
         startMonitoring()
@@ -93,6 +99,22 @@ class MainViewModel(
     fun setFloatingWidgetSize(size: FloatingWidgetSize) {
         preferences.floatingWidgetSize = size
         ObdMonitorStateStore.update { it.copy(floatingWidgetSize = size) }
+    }
+
+    fun setConnectionSettings(settings: ObdConnectionSettings) {
+        val normalized = settings.normalized()
+        preferences.connectionSettings = normalized
+        ObdMonitorStateStore.update { it.copy(connectionSettings = normalized) }
+    }
+
+    fun resetConnectionSettings() {
+        preferences.resetConnectionSettings()
+        ObdMonitorStateStore.update { it.copy(connectionSettings = preferences.connectionSettings) }
+    }
+
+    fun applyConnectionSettings() {
+        ObdMonitorService.stop(context)
+        ObdMonitorService.start(context)
     }
 
     private fun observeTripSummaryRefreshes() {
