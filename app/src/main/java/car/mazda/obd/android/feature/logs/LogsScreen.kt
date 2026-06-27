@@ -143,7 +143,10 @@ fun LogsScreen(onOpenMenu: () -> Unit, modifier: Modifier = Modifier) {
             )
 
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 FilterChip(
@@ -155,6 +158,11 @@ fun LogsScreen(onOpenMenu: () -> Unit, modifier: Modifier = Modifier) {
                     selected = !settings.newestFirst,
                     onClick = { settings = settings.copy(newestFirst = false, followNewest = true) },
                     label = { Text("Oldest first") },
+                )
+                FilterChip(
+                    selected = settings.followNewest,
+                    onClick = { settings = settings.copy(followNewest = !settings.followNewest) },
+                    label = { Text("Follow new events") },
                 )
             }
 
@@ -281,14 +289,6 @@ private fun DiagnosticSettingsScreen(
                     selected = settings.grouped,
                     onClick = { onSettingsChange(settings.copy(grouped = !settings.grouped)) },
                     label = { Text("Group TX / RX / parser") },
-                )
-            }
-
-            SettingsSection("Scrolling") {
-                FilterChip(
-                    selected = settings.followNewest,
-                    onClick = { onSettingsChange(settings.copy(followNewest = !settings.followNewest)) },
-                    label = { Text("Follow new events") },
                 )
             }
 
