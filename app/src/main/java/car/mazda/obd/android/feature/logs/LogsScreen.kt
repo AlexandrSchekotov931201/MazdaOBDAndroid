@@ -181,7 +181,12 @@ fun LogsScreen(onOpenMenu: () -> Unit, modifier: Modifier = Modifier) {
                     modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(groups, key = { group -> group.first().exchangeId ?: group.first().id }) { group ->
+                    items(
+                        items = groups,
+                        key = { group ->
+                            "${settings.newestFirst}-${group.first().exchangeId ?: group.first().id}"
+                        },
+                    ) { group ->
                         DiagnosticGroup(group = group, onOpen = { selectedEntry = it })
                     }
                 }
