@@ -17,6 +17,12 @@ class ObdMonitorPreferences(context: Context) {
             prefs.edit().putBoolean(KEY_AUTO_START_ENABLED, value).apply()
         }
 
+    var continueAfterAppClosed: Boolean
+        get() = prefs.getBoolean(KEY_CONTINUE_AFTER_APP_CLOSED, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_CONTINUE_AFTER_APP_CLOSED, value).apply()
+        }
+
     var floatingWidgetSize: FloatingWidgetSize
         get() = FloatingWidgetSize.fromKey(
             prefs.getString(KEY_FLOATING_WIDGET_SIZE, FloatingWidgetSize.Small.name)
@@ -30,6 +36,7 @@ class ObdMonitorPreferences(context: Context) {
         const val PREFS_NAME = "obd_monitor_preferences"
         const val KEY_FLOATING_WIDGET_ENABLED = "floating_widget_enabled"
         const val KEY_AUTO_START_ENABLED = "auto_start_enabled"
+        const val KEY_CONTINUE_AFTER_APP_CLOSED = "continue_after_app_closed"
         const val KEY_FLOATING_WIDGET_SIZE = "floating_widget_size"
     }
 }

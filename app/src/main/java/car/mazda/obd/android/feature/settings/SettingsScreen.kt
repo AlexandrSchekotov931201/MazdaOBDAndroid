@@ -37,6 +37,7 @@ fun SettingsScreen(
     val floatingWidgetEnabled by viewModel.floatingWidgetEnabledState.collectAsStateWithLifecycle()
     val floatingWidgetSize by viewModel.floatingWidgetSizeState.collectAsStateWithLifecycle()
     val autoStartEnabled by viewModel.autoStartEnabledState.collectAsStateWithLifecycle()
+    val continueAfterAppClosed by viewModel.continueAfterAppClosedState.collectAsStateWithLifecycle()
 
     Column(modifier = modifier.fillMaxSize()) {
         AppToolbar(
@@ -75,10 +76,26 @@ fun SettingsScreen(
             }
 
             SettingsSwitchCard(
+                title = "Keep running after app is closed",
+                subtitle = if (continueAfterAppClosed) {
+                    "Monitoring and reconnecting continue after the app is removed from recent apps"
+                } else {
+                    "Monitoring stops when the app is removed from recent apps"
+                },
+                checked = continueAfterAppClosed,
+                onCheckedChange = viewModel::setContinueAfterAppClosed,
+            )
+
+            SettingsSwitchCard(
                 title = "Start after phone boot",
-                subtitle = if (autoStartEnabled) "Enabled" else "Disabled",
+                subtitle = if (continueAfterAppClosed) {
+                    if (autoStartEnabled) "Enabled" else "Disabled"
+                } else {
+                    "Requires background operation after app close"
+                },
                 checked = autoStartEnabled,
                 onCheckedChange = viewModel::setAutoStartEnabled,
+                enabled = continueAfterAppClosed,
             )
 
         }
