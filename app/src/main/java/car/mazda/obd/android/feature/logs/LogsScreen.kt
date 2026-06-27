@@ -151,12 +151,12 @@ fun LogsScreen(onOpenMenu: () -> Unit, modifier: Modifier = Modifier) {
             ) {
                 FilterChip(
                     selected = settings.newestFirst,
-                    onClick = { settings = settings.copy(newestFirst = true, followNewest = true) },
+                    onClick = { settings = settings.copy(newestFirst = true) },
                     label = { Text("Newest first") },
                 )
                 FilterChip(
                     selected = !settings.newestFirst,
-                    onClick = { settings = settings.copy(newestFirst = false, followNewest = true) },
+                    onClick = { settings = settings.copy(newestFirst = false) },
                     label = { Text("Oldest first") },
                 )
                 FilterChip(
