@@ -49,7 +49,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 
 private data class DiagnosticViewSettings(
     val query: String = "",
-    val selectedLayer: AppLogger.Layer? = null,
+    val selectedLayers: Set<AppLogger.Layer> = emptySet(),
     val problemsOnly: Boolean = false,
     val grouped: Boolean = true,
     val newestFirst: Boolean = true,
@@ -71,7 +71,7 @@ fun LogsScreen(onOpenMenu: () -> Unit, modifier: Modifier = Modifier) {
     val filtered = remember(entries, settings) {
         entries.filter { entry ->
             (!settings.problemsOnly || entry.level != AppLogger.Level.Info) &&
-                (settings.selectedLayer == null || entry.layer == settings.selectedLayer) &&
+                (settings.selectedLayers.isEmpty() || entry.layer in settings.selectedLayers) &&
                 (settings.query.isBlank() || entry.searchText().contains(settings.query, ignoreCase = true))
         }
     }
@@ -237,14 +237,19 @@ private fun DiagnosticSettingsScreen(
 
             SettingsSection("Layer") {
                 FilterChip(
-                    selected = settings.selectedLayer == null,
-                    onClick = { onSettingsChange(settings.copy(selectedLayer = null)) },
+                    selected = settings.selectedLayers.isEmpty(),
+                    onClick = { onSettingsChange(settings.copy(selectedLayers = emptySet())) },
                     label = { Text("All layers") },
                 )
                 AppLogger.Layer.entries.forEach { layer ->
                     FilterChip(
-                        selected = settings.selectedLayer == layer,
-                        onClick = { onSettingsChange(settings.copy(selectedLayer = layer)) },
+                        selected = layer in settings.selectedLayers,
+                        onClick = {
+                            val selectedLayers = settings.selectedLayers.toMutableSet().apply {
+                                if (!add(layer)) remove(layer)
+                            }
+                            onSettingsChange(settings.copy(selectedLayers = selectedLayers))
+                        },
                         label = { Text(layer.name) },
                     )
                 }
