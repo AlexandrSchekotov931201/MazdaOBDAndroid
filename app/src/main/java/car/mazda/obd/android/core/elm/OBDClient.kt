@@ -5,6 +5,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import car.mazda.obd.android.BuildConfig
+import car.mazda.obd.android.core.elm.entity.CanIds
 import car.mazda.obd.android.core.elm.entity.ElmCommand
 import car.mazda.obd.android.core.elm.entity.OBDRequest
 import car.mazda.obd.android.core.elm.entity.OBDResponse
@@ -329,7 +330,7 @@ class OBDClient(
         "ATL0" -> "linefeeds-off"
         "ATH1" -> "headers-on"
         "ATSP0" -> "auto-protocol"
-        "ATSH7DF" -> "functional-header"
+        "ATSH${CanIds.ENGINE_ECU_REQUEST}" -> "engine-ecu-header"
         "ATI" -> "adapter-identification"
         "AT@1" -> "adapter-description"
         "ATRV" -> "adapter-voltage"
