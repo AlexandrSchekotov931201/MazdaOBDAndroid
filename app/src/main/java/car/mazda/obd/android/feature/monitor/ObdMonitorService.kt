@@ -90,6 +90,7 @@ class ObdMonitorService : Service() {
                 floatingWidgetEnabled = preferences.floatingWidgetEnabled,
                 floatingWidgetSize = preferences.floatingWidgetSize,
                 autoStartEnabled = preferences.autoStartEnabled,
+                continueAfterAppClosed = preferences.continueAfterAppClosed,
             )
         }
     }
@@ -102,10 +103,18 @@ class ObdMonitorService : Service() {
             }
             else -> startMonitoring()
         }
-        return START_STICKY
+        return if (preferences.continueAfterAppClosed) START_STICKY else START_NOT_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        if (!preferences.continueAfterAppClosed) {
+            AppLogger.log("App task removed; stopping OBD monitoring")
+            stopSelf()
+        }
+        super.onTaskRemoved(rootIntent)
+    }
 
     override fun onDestroy() {
         monitorJob?.cancel()

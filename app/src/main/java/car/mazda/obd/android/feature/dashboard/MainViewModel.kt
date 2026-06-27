@@ -55,6 +55,10 @@ class MainViewModel(
         .map { it.autoStartEnabled }
         .stateIn(viewModelScope, SharingStarted.Eagerly, preferences.autoStartEnabled)
 
+    val continueAfterAppClosedState: StateFlow<Boolean> = ObdMonitorStateStore.state
+        .map { it.continueAfterAppClosed }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, preferences.continueAfterAppClosed)
+
     val activeTripSummaryState: StateFlow<ActiveTripSummary?> = ObdMonitorStateStore.state
         .map { it.activeTrip }
         .stateIn(viewModelScope, SharingStarted.Eagerly, ObdMonitorStateStore.state.value.activeTrip)
@@ -67,6 +71,7 @@ class MainViewModel(
                 floatingWidgetEnabled = preferences.floatingWidgetEnabled,
                 floatingWidgetSize = preferences.floatingWidgetSize,
                 autoStartEnabled = preferences.autoStartEnabled,
+                continueAfterAppClosed = preferences.continueAfterAppClosed,
             )
         }
         startMonitoring()
@@ -88,6 +93,14 @@ class MainViewModel(
     fun setAutoStartEnabled(enabled: Boolean) {
         preferences.autoStartEnabled = enabled
         ObdMonitorStateStore.update { it.copy(autoStartEnabled = enabled) }
+    }
+
+    fun setContinueAfterAppClosed(enabled: Boolean) {
+        preferences.continueAfterAppClosed = enabled
+        ObdMonitorStateStore.update { it.copy(continueAfterAppClosed = enabled) }
+        // Re-deliver the start command so Android records the updated
+        // START_STICKY/START_NOT_STICKY policy. The running monitor is not restarted.
+        ObdMonitorService.start(context)
     }
 
     fun setFloatingWidgetSize(size: FloatingWidgetSize) {
