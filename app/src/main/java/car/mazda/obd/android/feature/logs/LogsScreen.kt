@@ -8,8 +8,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -17,6 +18,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -40,112 +47,111 @@ import car.mazda.obd.android.core.logs.DiagnosticReportExporter
 import car.mazda.obd.android.ui.AppToolbar
 import kotlinx.coroutines.flow.distinctUntilChanged
 
+private data class DiagnosticViewSettings(
+    val query: String = "",
+    val selectedLayer: AppLogger.Layer? = null,
+    val problemsOnly: Boolean = false,
+    val grouped: Boolean = true,
+    val newestFirst: Boolean = true,
+    val followNewest: Boolean = true,
+)
+
 @Composable
 fun LogsScreen(onOpenMenu: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val entries by AppLogger.entries.collectAsState()
-    var query by remember { mutableStateOf("") }
-    var selectedLayer by remember { mutableStateOf<AppLogger.Layer?>(null) }
-    var problemsOnly by remember { mutableStateOf(false) }
-    var grouped by remember { mutableStateOf(true) }
-    var newestFirst by remember { mutableStateOf(true) }
-    var followNewest by remember { mutableStateOf(true) }
+    var settings by remember { mutableStateOf(DiagnosticViewSettings()) }
+    var draftSettings by remember { mutableStateOf(settings) }
+    var showSettings by remember { mutableStateOf(false) }
     var selectedEntry by remember { mutableStateOf<AppLogger.Entry?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
     var showShareOptions by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
-    val filtered = remember(entries, query, selectedLayer, problemsOnly) {
+    val filtered = remember(entries, settings) {
         entries.filter { entry ->
-            (!problemsOnly || entry.level != AppLogger.Level.Info) &&
-                (selectedLayer == null || entry.layer == selectedLayer) &&
-                (query.isBlank() || entry.searchText().contains(query, ignoreCase = true))
+            (!settings.problemsOnly || entry.level != AppLogger.Level.Info) &&
+                (settings.selectedLayer == null || entry.layer == settings.selectedLayer) &&
+                (settings.query.isBlank() || entry.searchText().contains(settings.query, ignoreCase = true))
         }
     }
-    val groups = remember(filtered, grouped, newestFirst) {
-        val chronological = if (grouped) {
+    val groups = remember(filtered, settings.grouped, settings.newestFirst) {
+        val chronological = if (settings.grouped) {
             filtered.groupBy { it.exchangeId ?: "event-${it.id}" }.values.toList()
         } else {
             filtered.map(::listOf)
         }
-        if (newestFirst) chronological.asReversed() else chronological
+        if (settings.newestFirst) chronological.asReversed() else chronological
     }
 
     LaunchedEffect(listState) {
         snapshotFlow { listState.isScrollInProgress }
             .distinctUntilChanged()
             .collect { isScrolling ->
-                if (isScrolling) followNewest = false
+                if (isScrolling) settings = settings.copy(followNewest = false)
             }
     }
 
-    LaunchedEffect(filtered.size, newestFirst, followNewest) {
-        if (followNewest && groups.isNotEmpty()) {
-            listState.scrollToItem(if (newestFirst) 0 else groups.lastIndex)
+    LaunchedEffect(filtered.size, settings.newestFirst, settings.followNewest) {
+        if (settings.followNewest && groups.isNotEmpty()) {
+            listState.scrollToItem(if (settings.newestFirst) 0 else groups.lastIndex)
         }
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
-        AppToolbar(onOpenMenu = onOpenMenu, title = "Diagnostics")
-
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            label = { Text("Search command, error, raw data…") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+    if (showSettings) {
+        DiagnosticSettingsScreen(
+            settings = draftSettings,
+            hasLogs = entries.isNotEmpty(),
+            onSettingsChange = { draftSettings = it },
+            onApply = {
+                settings = draftSettings
+                showSettings = false
+            },
+            onBack = { showSettings = false },
+            onClear = { confirmClear = true },
+            modifier = modifier,
         )
-
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            FilterChip(selected = selectedLayer == null, onClick = { selectedLayer = null }, label = { Text("All layers") })
-            AppLogger.Layer.entries.forEach { layer ->
-                FilterChip(selected = selectedLayer == layer, onClick = { selectedLayer = layer }, label = { Text(layer.name) })
-            }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            FilterChip(selected = problemsOnly, onClick = { problemsOnly = !problemsOnly }, label = { Text("Problems only") })
-            FilterChip(selected = grouped, onClick = { grouped = !grouped }, label = { Text("Group TX / RX / parser") })
-            FilterChip(
-                selected = newestFirst,
-                onClick = {
-                    newestFirst = !newestFirst
-                    followNewest = true
+    } else {
+        Column(modifier = modifier.fillMaxSize()) {
+            AppToolbar(
+                onOpenMenu = onOpenMenu,
+                title = "Diagnostics",
+                actions = {
+                    IconButton(
+                        onClick = { showShareOptions = true },
+                        enabled = entries.isNotEmpty(),
+                    ) {
+                        Icon(Icons.Filled.Share, contentDescription = "Share diagnostic logs")
+                    }
+                    IconButton(
+                        onClick = {
+                            draftSettings = settings
+                            showSettings = true
+                        },
+                    ) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Diagnostic log settings")
+                    }
                 },
-                label = { Text(if (newestFirst) "Newest first" else "Oldest first") },
             )
-            FilterChip(
-                selected = followNewest,
-                onClick = { followNewest = !followNewest },
-                label = { Text(if (followNewest) "Following new" else "Follow new") },
+
+            Text(
+                text = "${filtered.size} of ${entries.size} events • ${if (settings.newestFirst) "newest first" else "oldest first"}",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            AssistChip(onClick = { showShareOptions = true }, label = { Text("Share logs") }, enabled = entries.isNotEmpty())
-            AssistChip(onClick = { confirmClear = true }, label = { Text("Clear") }, enabled = entries.isNotEmpty())
-        }
 
-        Text(
-            text = "${filtered.size} of ${entries.size} events • ${if (newestFirst) "newest first" else "oldest first"}",
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        if (groups.isEmpty()) {
-            Text("No matching diagnostic events", modifier = Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(groups, key = { group -> group.first().exchangeId ?: group.first().id }) { group ->
-                    DiagnosticGroup(group = group, onOpen = { selectedEntry = it })
+            if (groups.isEmpty()) {
+                Text("No matching diagnostic events", modifier = Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(groups, key = { group -> group.first().exchangeId ?: group.first().id }) { group ->
+                        DiagnosticGroup(group = group, onOpen = { selectedEntry = it })
+                    }
                 }
             }
         }
@@ -191,6 +197,112 @@ fun LogsScreen(onOpenMenu: () -> Unit, modifier: Modifier = Modifier) {
             text = { Text("Stored events will be removed from this device. Export them first if they may be useful.") },
             confirmButton = { TextButton(onClick = { AppLogger.clear(); confirmClear = false }) { Text("Clear") } },
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun DiagnosticSettingsScreen(
+    settings: DiagnosticViewSettings,
+    hasLogs: Boolean,
+    onSettingsChange: (DiagnosticViewSettings) -> Unit,
+    onApply: () -> Unit,
+    onBack: () -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to diagnostic logs")
+            }
+            Text("Log view settings", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+        }
+
+        Column(
+            modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            OutlinedTextField(
+                value = settings.query,
+                onValueChange = { onSettingsChange(settings.copy(query = it)) },
+                label = { Text("Search command, error, raw data…") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            SettingsSection("Layer") {
+                FilterChip(
+                    selected = settings.selectedLayer == null,
+                    onClick = { onSettingsChange(settings.copy(selectedLayer = null)) },
+                    label = { Text("All layers") },
+                )
+                AppLogger.Layer.entries.forEach { layer ->
+                    FilterChip(
+                        selected = settings.selectedLayer == layer,
+                        onClick = { onSettingsChange(settings.copy(selectedLayer = layer)) },
+                        label = { Text(layer.name) },
+                    )
+                }
+            }
+
+            SettingsSection("Content") {
+                FilterChip(
+                    selected = settings.problemsOnly,
+                    onClick = { onSettingsChange(settings.copy(problemsOnly = !settings.problemsOnly)) },
+                    label = { Text("Problems only") },
+                )
+                FilterChip(
+                    selected = settings.grouped,
+                    onClick = { onSettingsChange(settings.copy(grouped = !settings.grouped)) },
+                    label = { Text("Group TX / RX / parser") },
+                )
+            }
+
+            SettingsSection("Order and scrolling") {
+                FilterChip(
+                    selected = settings.newestFirst,
+                    onClick = { onSettingsChange(settings.copy(newestFirst = true, followNewest = true)) },
+                    label = { Text("Newest first") },
+                )
+                FilterChip(
+                    selected = !settings.newestFirst,
+                    onClick = { onSettingsChange(settings.copy(newestFirst = false, followNewest = true)) },
+                    label = { Text("Oldest first") },
+                )
+                FilterChip(
+                    selected = settings.followNewest,
+                    onClick = { onSettingsChange(settings.copy(followNewest = !settings.followNewest)) },
+                    label = { Text("Follow new events") },
+                )
+            }
+
+            TextButton(onClick = onClear, enabled = hasLogs) {
+                Text("Clear stored journal", color = MaterialTheme.colorScheme.error)
+            }
+        }
+
+        Button(
+            onClick = onApply,
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+        ) {
+            Text("Apply")
+        }
+    }
+}
+
+@Composable
+private fun SettingsSection(title: String, content: @Composable RowScope.() -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            content = content,
         )
     }
 }
