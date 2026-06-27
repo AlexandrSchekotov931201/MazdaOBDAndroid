@@ -14,6 +14,10 @@ import car.mazda.obd.android.core.elm.exception.NetworkUnavailableException
 import car.mazda.obd.android.core.elm.exception.ProtocolException
 import car.mazda.obd.android.core.elm.exception.UnknownObdException
 import car.mazda.obd.android.core.elm.mapper.OBDDataMapper
+import car.mazda.obd.android.core.logs.AppLogger
+import car.mazda.obd.android.core.logs.AppLogger.Direction
+import car.mazda.obd.android.core.logs.AppLogger.Layer
+import car.mazda.obd.android.core.logs.AppLogger.Level
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -40,11 +44,14 @@ class OBDClient(
         private const val READ_TIMEOUT_MS = 2_000
         private const val NETWORK_REQUEST_TIMEOUT_MS = 3_000L
         private const val PROD_FLAVOR = "prod"
+        private const val CAN_ERROR_SNAPSHOT_INTERVAL_MS = 5_000L
     }
 
     private var socket: Socket? = null
     private var reader: BufferedReader? = null
     private var writer: OutputStreamWriter? = null
+    private var protocolSnapshotCaptured = false
+    private var lastCanErrorSnapshotAtMs = 0L
 
     private val dataMapper = OBDDataMapper()
 
@@ -54,6 +61,7 @@ class OBDClient(
     private val port = BuildConfig.OBD_PORT
 
     suspend fun connect() = mutex.withLock {
+        AppLogger.event(layer = Layer.Network, operation = "connect", message = "Connecting to $host:$port")
         try {
             unlockedRelease()
 
@@ -64,43 +72,51 @@ class OBDClient(
             socket = s
             reader = BufferedReader(InputStreamReader(s.getInputStream()))
             writer = OutputStreamWriter(s.getOutputStream())
+            AppLogger.event(layer = Layer.Network, operation = "connect", message = "Socket connected to $host:$port")
         } catch (e: UnknownHostException) {
+            logConnectionFailure(e)
             unlockedRelease()
             throw NetworkUnavailableException(
                 message = "Network/DNS unavailable: ${e.message}",
                 cause = e,
             )
         } catch (e: NoRouteToHostException) {
+            logConnectionFailure(e)
             unlockedRelease()
             throw NetworkUnavailableException(
                 message = "No route to $host. Check the adapter Wi-Fi network.",
                 cause = e,
             )
         } catch (e: SocketTimeoutException) {
+            logConnectionFailure(e)
             unlockedRelease()
             throw AdapterUnreachableException(
                 message = "Connection timeout to $host:$port. The adapter may be unreachable.",
                 cause = e,
             )
         } catch (e: ConnectException) {
+            logConnectionFailure(e)
             unlockedRelease()
             throw AdapterUnreachableException(
                 message = "Could not connect to $host:$port: ${e.message}",
                 cause = e,
             )
         } catch (e: SocketException) {
+            logConnectionFailure(e)
             unlockedRelease()
             throw NetworkUnavailableException(
                 message = "Could not route OBD socket over Wi-Fi: ${e.message}",
                 cause = e,
             )
         } catch (e: SecurityException) {
+            logConnectionFailure(e)
             unlockedRelease()
             throw NetworkUnavailableException(
                 message = "Missing permissions or network restriction: ${e.message}",
                 cause = e,
             )
         } catch (e: Exception) {
+            logConnectionFailure(e)
             unlockedRelease()
             throw UnknownObdException(
                 message = "Connection error: ${e.message}",
@@ -185,17 +201,43 @@ class OBDClient(
     private fun unlockedRequestElm(cmd: ElmCommand): OBDResponse =
         unlockedRequest(cmd.value)
 
-    private fun unlockedRequestObd(req: OBDRequest): OBDResponse =
-        unlockedRequest(req.value)
+    private fun unlockedRequestObd(req: OBDRequest): OBDResponse {
+        val response = unlockedRequest(req.value)
+        if (!protocolSnapshotCaptured && response is OBDResponse.Data) {
+            protocolSnapshotCaptured = true
+            captureAdapterSnapshot()
+        } else if (response is OBDResponse.NoData.CanError) {
+            val now = System.currentTimeMillis()
+            if (now - lastCanErrorSnapshotAtMs >= CAN_ERROR_SNAPSHOT_INTERVAL_MS) {
+                lastCanErrorSnapshotAtMs = now
+                captureAdapterSnapshot()
+            }
+        }
+        return response
+    }
 
     private fun unlockedRequest(request: String): OBDResponse {
         val w = writer ?: throw NetworkUnavailableException("Writer is null - socket closed")
         val r = reader ?: throw NetworkUnavailableException("Reader is null - socket closed")
 
+        val exchangeId = AppLogger.newExchangeId()
+        val startedAtNs = System.nanoTime()
+        val isElmCommand = request.startsWith("AT", ignoreCase = true)
+        val layer = if (isElmCommand) Layer.Elm else Layer.Obd
+        AppLogger.event(
+            layer = layer,
+            direction = Direction.Tx,
+            operation = request.operationName(),
+            message = "Sending command",
+            exchangeId = exchangeId,
+            raw = "$request\r",
+        )
+
         try {
             w.write(request + "\r")
             w.flush()
         } catch (e: Throwable) {
+            AppLogger.event(Level.Error, Layer.Network, Direction.Tx, "socket-write", "Write failed", exchangeId, request, e)
             throw LostConnectionException("Write failed: ${e.message}", e)
         }
 
@@ -205,12 +247,15 @@ class OBDClient(
             val ch = try {
                 r.read()
             } catch (e: SocketTimeoutException) {
+                AppLogger.event(Level.Error, Layer.Network, Direction.Rx, "socket-read", "Timed out waiting for ELM prompt", exchangeId, sb.toString(), e)
                 throw AdapterUnreachableException("Read timeout on request: $request", e)
             } catch (e: Throwable) {
+                AppLogger.event(Level.Error, Layer.Network, Direction.Rx, "socket-read", "Read failed", exchangeId, sb.toString(), e)
                 throw LostConnectionException("Read failed: ${e.message}", e)
             }
 
             if (ch == -1) {
+                AppLogger.event(Level.Error, Layer.Network, Direction.Rx, "socket-read", "Socket closed before ELM prompt", exchangeId, sb.toString())
                 throw LostConnectionException("Socket closed by remote side")
             }
 
@@ -221,10 +266,40 @@ class OBDClient(
         }
 
         val raw = sb.toString()
+        val elapsedMs = (System.nanoTime() - startedAtNs) / 1_000_000
+        AppLogger.event(
+            layer = layer,
+            direction = Direction.Rx,
+            operation = request.operationName(),
+            message = "Received ELM response in ${elapsedMs}ms",
+            exchangeId = exchangeId,
+            raw = raw,
+        )
+
+        if (isElmCommand) {
+            AppLogger.event(
+                layer = Layer.Elm,
+                operation = request.operationName(),
+                message = "Adapter command completed",
+                exchangeId = exchangeId,
+            )
+            return dataMapper.map(raw)
+        }
 
         return try {
-            dataMapper.map(raw)
+            dataMapper.map(raw).also { response ->
+                AppLogger.event(
+                    level = response.logLevel(),
+                    layer = Layer.Parser,
+                    operation = request.operationName(),
+                    message = response.diagnosticSummary(),
+                    exchangeId = exchangeId,
+                    raw = raw.takeIf { response !is OBDResponse.Data },
+                    throwable = (response as? OBDResponse.NoData.Error)?.throwable,
+                )
+            }
         } catch (e: Throwable) {
+            AppLogger.event(Level.Error, Layer.Parser, operation = request.operationName(), message = "Parser threw an exception", exchangeId = exchangeId, raw = raw, throwable = e)
             throw ProtocolException("Failed to parse response for request=$request", e)
         }
     }
@@ -238,5 +313,60 @@ class OBDClient(
         writer = null
         reader = null
         socket = null
+        protocolSnapshotCaptured = false
+        lastCanErrorSnapshotAtMs = 0L
+    }
+
+    private fun logConnectionFailure(t: Throwable) {
+        AppLogger.event(Level.Error, Layer.Network, operation = "connect", message = "Connection failed", throwable = t)
+    }
+
+    private fun String.operationName(): String = when (uppercase()) {
+        "010C" -> "engine-rpm"
+        "0105" -> "coolant-temperature"
+        "ATZ" -> "adapter-reset"
+        "ATE0" -> "echo-off"
+        "ATL0" -> "linefeeds-off"
+        "ATH1" -> "headers-on"
+        "ATSP0" -> "auto-protocol"
+        "ATSH7DF" -> "functional-header"
+        "ATI" -> "adapter-identification"
+        "AT@1" -> "adapter-description"
+        "ATRV" -> "adapter-voltage"
+        "ATDP" -> "active-protocol"
+        "ATDPN" -> "active-protocol-number"
+        "ATCS" -> "can-error-counters"
+        else -> uppercase()
+    }
+
+    private fun OBDResponse.logLevel(): Level = when (this) {
+        is OBDResponse.Data -> Level.Info
+        is OBDResponse.NoData.Searching -> Level.Info
+        is OBDResponse.NoData.CanError, is OBDResponse.NoData.Empty, is OBDResponse.NoData.Unrecognized -> Level.HandledError
+        is OBDResponse.NoData.Error -> Level.Error
+    }
+
+    private fun OBDResponse.diagnosticSummary(): String = when (this) {
+        is OBDResponse.Data -> "Parsed ${data.size} OBD response(s): " + data.joinToString { "CAN=${it.canId} PID=${it.pid} bytes=${it.data.size}" }
+        is OBDResponse.NoData.CanError -> "Adapter reported CAN ERROR"
+        is OBDResponse.NoData.Searching -> "Adapter is searching for a protocol"
+        is OBDResponse.NoData.Empty -> "Adapter reported NO DATA"
+        is OBDResponse.NoData.Unrecognized -> "Response did not match any known ELM/OBD format"
+        is OBDResponse.NoData.Error -> "Response parsing failed"
+    }
+
+    private fun captureAdapterSnapshot() {
+        AppLogger.event(layer = Layer.Elm, operation = "adapter-snapshot", message = "Capturing read-only adapter diagnostics")
+        listOf(
+            ElmCommand.DescribeProtocol,
+            ElmCommand.DescribeProtocolNumber,
+            ElmCommand.ReadVoltage,
+            ElmCommand.CanStatus,
+        ).forEach { command ->
+            runCatching { unlockedRequestElm(command) }
+                .onFailure { error ->
+                    AppLogger.event(Level.Error, Layer.Elm, operation = "adapter-snapshot", message = "Could not read ${command.value}", throwable = error)
+                }
+        }
     }
 }
