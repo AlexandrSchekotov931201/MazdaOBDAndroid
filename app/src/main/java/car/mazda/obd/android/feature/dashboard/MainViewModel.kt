@@ -98,6 +98,9 @@ class MainViewModel(
     fun setContinueAfterAppClosed(enabled: Boolean) {
         preferences.continueAfterAppClosed = enabled
         ObdMonitorStateStore.update { it.copy(continueAfterAppClosed = enabled) }
+        // Re-deliver the start command so Android records the updated
+        // START_STICKY/START_NOT_STICKY policy. The running monitor is not restarted.
+        ObdMonitorService.start(context)
     }
 
     fun setFloatingWidgetSize(size: FloatingWidgetSize) {
