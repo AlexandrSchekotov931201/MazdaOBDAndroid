@@ -92,7 +92,7 @@ fun LogsScreen(onOpenMenu: () -> Unit, modifier: Modifier = Modifier) {
             }
     }
 
-    LaunchedEffect(filtered.size, settings.newestFirst, settings.followNewest) {
+    LaunchedEffect(entries.size, settings.followNewest) {
         if (settings.followNewest && groups.isNotEmpty()) {
             listState.scrollToItem(if (settings.newestFirst) 0 else groups.lastIndex)
         }
