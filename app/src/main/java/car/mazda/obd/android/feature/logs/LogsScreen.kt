@@ -134,6 +134,30 @@ fun LogsScreen(onOpenMenu: () -> Unit, modifier: Modifier = Modifier) {
                 },
             )
 
+            OutlinedTextField(
+                value = settings.query,
+                onValueChange = { settings = settings.copy(query = it) },
+                label = { Text("Search command, error, raw data…") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilterChip(
+                    selected = settings.newestFirst,
+                    onClick = { settings = settings.copy(newestFirst = true, followNewest = true) },
+                    label = { Text("Newest first") },
+                )
+                FilterChip(
+                    selected = !settings.newestFirst,
+                    onClick = { settings = settings.copy(newestFirst = false, followNewest = true) },
+                    label = { Text("Oldest first") },
+                )
+            }
+
             Text(
                 text = "${filtered.size} of ${entries.size} events • ${if (settings.newestFirst) "newest first" else "oldest first"}",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -227,14 +251,6 @@ private fun DiagnosticSettingsScreen(
             modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            OutlinedTextField(
-                value = settings.query,
-                onValueChange = { onSettingsChange(settings.copy(query = it)) },
-                label = { Text("Search command, error, raw data…") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
             SettingsSection("Layer") {
                 FilterChip(
                     selected = settings.selectedLayers.isEmpty(),
@@ -268,17 +284,7 @@ private fun DiagnosticSettingsScreen(
                 )
             }
 
-            SettingsSection("Order and scrolling") {
-                FilterChip(
-                    selected = settings.newestFirst,
-                    onClick = { onSettingsChange(settings.copy(newestFirst = true, followNewest = true)) },
-                    label = { Text("Newest first") },
-                )
-                FilterChip(
-                    selected = !settings.newestFirst,
-                    onClick = { onSettingsChange(settings.copy(newestFirst = false, followNewest = true)) },
-                    label = { Text("Oldest first") },
-                )
+            SettingsSection("Scrolling") {
                 FilterChip(
                     selected = settings.followNewest,
                     onClick = { onSettingsChange(settings.copy(followNewest = !settings.followNewest)) },
