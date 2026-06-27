@@ -6,6 +6,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -17,11 +18,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -35,6 +38,7 @@ import car.mazda.obd.android.BuildConfig
 import car.mazda.obd.android.core.logs.AppLogger
 import car.mazda.obd.android.core.logs.DiagnosticReportExporter
 import car.mazda.obd.android.ui.AppToolbar
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
 fun LogsScreen(onOpenMenu: () -> Unit, modifier: Modifier = Modifier) {
@@ -44,9 +48,12 @@ fun LogsScreen(onOpenMenu: () -> Unit, modifier: Modifier = Modifier) {
     var selectedLayer by remember { mutableStateOf<AppLogger.Layer?>(null) }
     var problemsOnly by remember { mutableStateOf(false) }
     var grouped by remember { mutableStateOf(true) }
+    var newestFirst by remember { mutableStateOf(true) }
+    var followNewest by remember { mutableStateOf(true) }
     var selectedEntry by remember { mutableStateOf<AppLogger.Entry?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
     var showShareOptions by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
 
     val filtered = remember(entries, query, selectedLayer, problemsOnly) {
         entries.filter { entry ->
@@ -55,9 +62,27 @@ fun LogsScreen(onOpenMenu: () -> Unit, modifier: Modifier = Modifier) {
                 (query.isBlank() || entry.searchText().contains(query, ignoreCase = true))
         }
     }
-    val groups = remember(filtered, grouped) {
-        if (grouped) filtered.groupBy { it.exchangeId ?: "event-${it.id}" }.values.toList().asReversed()
-        else filtered.asReversed().map(::listOf)
+    val groups = remember(filtered, grouped, newestFirst) {
+        val chronological = if (grouped) {
+            filtered.groupBy { it.exchangeId ?: "event-${it.id}" }.values.toList()
+        } else {
+            filtered.map(::listOf)
+        }
+        if (newestFirst) chronological.asReversed() else chronological
+    }
+
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { isScrolling ->
+                if (isScrolling) followNewest = false
+            }
+    }
+
+    LaunchedEffect(filtered.size, newestFirst, followNewest) {
+        if (followNewest && groups.isNotEmpty()) {
+            listState.scrollToItem(if (newestFirst) 0 else groups.lastIndex)
+        }
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -87,12 +112,25 @@ fun LogsScreen(onOpenMenu: () -> Unit, modifier: Modifier = Modifier) {
         ) {
             FilterChip(selected = problemsOnly, onClick = { problemsOnly = !problemsOnly }, label = { Text("Problems only") })
             FilterChip(selected = grouped, onClick = { grouped = !grouped }, label = { Text("Group TX / RX / parser") })
+            FilterChip(
+                selected = newestFirst,
+                onClick = {
+                    newestFirst = !newestFirst
+                    followNewest = true
+                },
+                label = { Text(if (newestFirst) "Newest first" else "Oldest first") },
+            )
+            FilterChip(
+                selected = followNewest,
+                onClick = { followNewest = !followNewest },
+                label = { Text(if (followNewest) "Following new" else "Follow new") },
+            )
             AssistChip(onClick = { showShareOptions = true }, label = { Text("Share logs") }, enabled = entries.isNotEmpty())
             AssistChip(onClick = { confirmClear = true }, label = { Text("Clear") }, enabled = entries.isNotEmpty())
         }
 
         Text(
-            text = "${filtered.size} of ${entries.size} events • newest first",
+            text = "${filtered.size} of ${entries.size} events • ${if (newestFirst) "newest first" else "oldest first"}",
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -101,7 +139,11 @@ fun LogsScreen(onOpenMenu: () -> Unit, modifier: Modifier = Modifier) {
         if (groups.isEmpty()) {
             Text("No matching diagnostic events", modifier = Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
-            LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 items(groups, key = { group -> group.first().exchangeId ?: group.first().id }) { group ->
                     DiagnosticGroup(group = group, onOpen = { selectedEntry = it })
                 }
