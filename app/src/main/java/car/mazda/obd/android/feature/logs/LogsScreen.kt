@@ -46,6 +46,7 @@ fun LogsScreen(onOpenMenu: () -> Unit, modifier: Modifier = Modifier) {
     var grouped by remember { mutableStateOf(true) }
     var selectedEntry by remember { mutableStateOf<AppLogger.Entry?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
+    var showShareOptions by remember { mutableStateOf(false) }
 
     val filtered = remember(entries, query, selectedLayer, problemsOnly) {
         entries.filter { entry ->
@@ -86,7 +87,7 @@ fun LogsScreen(onOpenMenu: () -> Unit, modifier: Modifier = Modifier) {
         ) {
             FilterChip(selected = problemsOnly, onClick = { problemsOnly = !problemsOnly }, label = { Text("Problems only") })
             FilterChip(selected = grouped, onClick = { grouped = !grouped }, label = { Text("Group TX / RX / parser") })
-            AssistChip(onClick = { shareReport(context, filtered) }, label = { Text("Share ${filtered.size}") }, enabled = filtered.isNotEmpty())
+            AssistChip(onClick = { showShareOptions = true }, label = { Text("Share logs") }, enabled = entries.isNotEmpty())
             AssistChip(onClick = { confirmClear = true }, label = { Text("Clear") }, enabled = entries.isNotEmpty())
         }
 
@@ -109,6 +110,38 @@ fun LogsScreen(onOpenMenu: () -> Unit, modifier: Modifier = Modifier) {
     }
 
     selectedEntry?.let { entry -> EntryDetails(entry = entry, onDismiss = { selectedEntry = null }) }
+    if (showShareOptions) {
+        AlertDialog(
+            onDismissRequest = { showShareOptions = false },
+            title = { Text("Share diagnostic logs") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            showShareOptions = false
+                            shareReport(context, entries)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Share entire journal")
+                    }
+                    TextButton(
+                        onClick = {
+                            showShareOptions = false
+                            shareReport(context, filtered)
+                        },
+                        enabled = filtered.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Share current filtered view")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showShareOptions = false }) { Text("Cancel") }
+            },
+        )
+    }
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
