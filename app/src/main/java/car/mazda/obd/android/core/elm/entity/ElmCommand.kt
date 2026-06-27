@@ -7,6 +7,12 @@ sealed class ElmCommand(val value: String) {
     data object HeadersOn : ElmCommand("ATH1")
     data object AutoProtocol : ElmCommand("ATSP0")
     data class SetHeader(val canId: String) : ElmCommand("ATSH$canId")
+    data object Identify : ElmCommand("ATI")
+    data object DeviceDescription : ElmCommand("AT@1")
+    data object ReadVoltage : ElmCommand("ATRV")
+    data object DescribeProtocol : ElmCommand("ATDP")
+    data object DescribeProtocolNumber : ElmCommand("ATDPN")
+    data object CanStatus : ElmCommand("ATCS")
 
     companion object {
         val defaultInitSequence = listOf(
@@ -16,6 +22,9 @@ sealed class ElmCommand(val value: String) {
             HeadersOn,
             AutoProtocol,
             SetHeader(CanIds.FUNCTIONAL_REQUEST),
+            Identify,
+            DeviceDescription,
+            ReadVoltage,
         )
     }
 }

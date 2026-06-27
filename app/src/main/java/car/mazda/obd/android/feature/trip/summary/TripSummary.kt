@@ -6,21 +6,9 @@ data class TripSummary(
     val finishedAtMs: Long,
     val maxRpm: Int,
     val maxEngineTempCelsius: Int?,
-    val debugEvents: List<TripDebugEvent> = emptyList(),
 ) {
     val durationMs: Long
         get() = (finishedAtMs - startedAtMs).coerceAtLeast(0L)
-}
-
-data class TripDebugEvent(
-    val id: Long = 0L,
-    val tripId: Long = 0L,
-    val occurredAtMs: Long,
-    val level: String,
-    val message: String,
-) {
-    val line: String
-        get() = "$level $message"
 }
 
 data class ActiveTripSummary(
