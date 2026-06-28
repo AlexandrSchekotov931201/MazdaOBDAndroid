@@ -18,6 +18,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -55,7 +58,9 @@ fun TripRouteScreen(
 @Composable
 private fun RouteContent(state: TripRouteUiState, active: Boolean, onDelete: () -> Unit) {
     val camera = rememberCameraPositionState()
-    LaunchedEffect(state.points.firstOrNull()?.id, state.points.lastOrNull()?.id) {
+    var mapLoaded by remember { mutableStateOf(false) }
+    LaunchedEffect(mapLoaded, state.points.firstOrNull()?.id, state.points.lastOrNull()?.id) {
+        if (!mapLoaded || !BuildConfig.MAPS_API_KEY_CONFIGURED) return@LaunchedEffect
         val coordinates = state.points.map { LatLng(it.latitude, it.longitude) }
         when (coordinates.size) {
             0 -> Unit
@@ -67,7 +72,11 @@ private fun RouteContent(state: TripRouteUiState, active: Boolean, onDelete: () 
         }
     }
     Column(Modifier.verticalScroll(rememberScrollState())) {
-        if (BuildConfig.MAPS_API_KEY_CONFIGURED) GoogleMap(modifier = Modifier.fillMaxWidth().height(430.dp), cameraPositionState = camera) {
+        if (BuildConfig.MAPS_API_KEY_CONFIGURED) GoogleMap(
+            modifier = Modifier.fillMaxWidth().height(430.dp),
+            cameraPositionState = camera,
+            onMapLoaded = { mapLoaded = true },
+        ) {
             state.points.groupBy { it.segment }.values.forEach { segment ->
                 segment.zipWithNext().forEach { (from, to) ->
                     Polyline(
