@@ -7,7 +7,6 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,8 +22,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
-import android.content.pm.PackageManager
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import car.mazda.obd.android.feature.dashboard.MainViewModel
@@ -40,6 +37,8 @@ import car.mazda.obd.android.feature.trip.route.TripRouteSettingsViewModelFactor
 import car.mazda.obd.android.feature.trip.route.TripRouteViewModel
 import car.mazda.obd.android.feature.trip.route.TripRouteViewModelFactory
 import car.mazda.obd.android.feature.trip.route.TripRouteScreen
+import car.mazda.obd.android.feature.trip.route.LocationPermissionSettingsDialog
+import car.mazda.obd.android.feature.trip.route.LocationPermissionCoordinator
 import car.mazda.obd.android.ui.theme.MazdaOBDAndroidTheme
 import kotlinx.coroutines.launch
 
@@ -70,18 +69,13 @@ open class MainActivity : ComponentActivity() {
         )[TripRouteViewModel::class.java]
     }
 
-    private var locationPermissionGranted by mutableStateOf(false)
-
-    private val locationPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions(),
-    ) { result ->
-        locationPermissionGranted = result[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
-            result[Manifest.permission.ACCESS_COARSE_LOCATION] == true
-        routeSettingsViewModel.setRecordingEnabled(locationPermissionGranted)
+    private val locationPermissionCoordinator = LocationPermissionCoordinator(this) {
+        routeSettingsViewModel.setRecordingEnabled(true)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        locationPermissionCoordinator.restoreState(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             MazdaOBDAndroidTheme {
@@ -163,11 +157,18 @@ open class MainActivity : ComponentActivity() {
                                 routeSettingsViewModel = routeSettingsViewModel,
                                 onOpenMenu = openDrawer,
                                 onRequestOverlayPermission = ::openOverlayPermissionSettings,
-                                locationPermissionGranted = locationPermissionGranted,
+                                locationPermissionGranted = locationPermissionCoordinator.permissionGranted,
                                 onSetRouteRecordingEnabled = ::setRouteRecordingEnabled,
                             )
                         }
                     }
+                }
+
+                if (locationPermissionCoordinator.showSettingsPrompt) {
+                    LocationPermissionSettingsDialog(
+                        onOpenSettings = locationPermissionCoordinator::openAppSettings,
+                        onDismiss = locationPermissionCoordinator::dismissSettingsPrompt,
+                    )
                 }
             }
         }
@@ -182,10 +183,10 @@ open class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        locationPermissionGranted = hasLocationPermission()
-        if (!locationPermissionGranted && routeSettingsViewModel.recordingEnabled.value) {
+        locationPermissionCoordinator.onResume()
+        if (!locationPermissionCoordinator.permissionGranted && routeSettingsViewModel.recordingEnabled.value) {
             routeSettingsViewModel.setRecordingEnabled(false)
-        } else if (locationPermissionGranted && routeSettingsViewModel.recordingEnabled.value) {
+        } else if (locationPermissionCoordinator.permissionGranted && routeSettingsViewModel.recordingEnabled.value) {
             ObdMonitorService.refreshRouteRecording(applicationContext)
         }
     }
@@ -235,25 +236,16 @@ open class MainActivity : ComponentActivity() {
         )
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        locationPermissionCoordinator.saveState(outState)
+        super.onSaveInstanceState(outState)
+    }
+
     private fun setRouteRecordingEnabled(enabled: Boolean) {
         if (!enabled) {
             routeSettingsViewModel.setRecordingEnabled(false)
             return
         }
-        if (hasLocationPermission()) {
-            locationPermissionGranted = true
-            routeSettingsViewModel.setRecordingEnabled(true)
-        } else {
-            locationPermissionLauncher.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION,
-                )
-            )
-        }
+        locationPermissionCoordinator.requestPermissionOrShowSettings()
     }
-
-    private fun hasLocationPermission(): Boolean =
-        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 }
