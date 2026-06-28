@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
@@ -30,7 +31,12 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-fun TripsScreen(viewModel: MainViewModel, onOpenMenu: () -> Unit, modifier: Modifier = Modifier) {
+fun TripsScreen(
+    viewModel: MainViewModel,
+    onOpenMenu: () -> Unit,
+    onOpenTripRoute: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val activeTrip by viewModel.activeTripSummaryState.collectAsStateWithLifecycle()
     val recentTrips by viewModel.recentTripSummariesState.collectAsStateWithLifecycle()
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -58,6 +64,7 @@ fun TripsScreen(viewModel: MainViewModel, onOpenMenu: () -> Unit, modifier: Modi
                     maxRpm = activeTrip!!.maxRpm,
                     maxTemp = activeTrip!!.maxEngineTempCelsius,
                     active = true,
+                    onClick = { onOpenTripRoute(activeTrip!!.startedAtMs) },
                 )
             }
             item { SectionTitle("History") }
@@ -69,6 +76,7 @@ fun TripsScreen(viewModel: MainViewModel, onOpenMenu: () -> Unit, modifier: Modi
                     durationMs = trip.durationMs,
                     maxRpm = trip.maxRpm,
                     maxTemp = trip.maxEngineTempCelsius,
+                    onClick = { onOpenTripRoute(trip.startedAtMs) },
                 )
             }
         }
@@ -88,9 +96,17 @@ private fun EmptyState(text: String) {
 }
 
 @Composable
-private fun TripCard(title: String, subtitle: String, durationMs: Long, maxRpm: Int, maxTemp: Int?, active: Boolean = false) {
+private fun TripCard(
+    title: String,
+    subtitle: String,
+    durationMs: Long,
+    maxRpm: Int,
+    maxTemp: Int?,
+    active: Boolean = false,
+    onClick: () -> Unit,
+) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         color = if (active) Color(0xFFE8F5E9) else MaterialTheme.colorScheme.surface,
         shape = MaterialTheme.shapes.medium,
         tonalElevation = 1.dp,
