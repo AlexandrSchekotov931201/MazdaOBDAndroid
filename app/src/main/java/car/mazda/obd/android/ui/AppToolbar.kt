@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -23,6 +24,7 @@ fun AppToolbar(
     onOpenMenu: () -> Unit,
     modifier: Modifier = Modifier,
     title: String? = null,
+    isBackNavigation: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     Row(
@@ -34,8 +36,8 @@ fun AppToolbar(
     ) {
         IconButton(onClick = onOpenMenu) {
             Icon(
-                imageVector = Icons.Filled.Menu,
-                contentDescription = "Open navigation menu"
+                imageVector = if (isBackNavigation) Icons.AutoMirrored.Filled.ArrowBack else Icons.Filled.Menu,
+                contentDescription = if (isBackNavigation) "Back" else "Open navigation menu"
             )
         }
 

@@ -25,12 +25,16 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import car.mazda.obd.android.feature.dashboard.MainViewModel
 import car.mazda.obd.android.feature.monitor.FloatingWidgetSize
 import car.mazda.obd.android.ui.AppToolbar
+import car.mazda.obd.android.feature.trip.route.TripRouteSettingsViewModel
 
 @Composable
 fun SettingsScreen(
     viewModel: MainViewModel,
+    routeSettingsViewModel: TripRouteSettingsViewModel,
     onOpenMenu: () -> Unit,
     onRequestOverlayPermission: () -> Unit,
+    locationPermissionGranted: Boolean,
+    onSetRouteRecordingEnabled: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val overlayPermissionGranted by viewModel.overlayEnabledState.collectAsStateWithLifecycle()
@@ -38,6 +42,7 @@ fun SettingsScreen(
     val floatingWidgetSize by viewModel.floatingWidgetSizeState.collectAsStateWithLifecycle()
     val autoStartEnabled by viewModel.autoStartEnabledState.collectAsStateWithLifecycle()
     val continueAfterAppClosed by viewModel.continueAfterAppClosedState.collectAsStateWithLifecycle()
+    val routeRecordingEnabled by routeSettingsViewModel.recordingEnabled.collectAsStateWithLifecycle()
 
     Column(modifier = modifier.fillMaxSize()) {
         AppToolbar(
@@ -51,6 +56,17 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            SettingsSwitchCard(
+                title = "Trip maps",
+                subtitle = when {
+                    routeRecordingEnabled && locationPermissionGranted -> "Records the route while a trip is active"
+                    !locationPermissionGranted -> "Location permission is required; OBD trips still work without it"
+                    else -> "Route recording is disabled"
+                },
+                checked = routeRecordingEnabled && locationPermissionGranted,
+                onCheckedChange = onSetRouteRecordingEnabled,
+            )
+
             SettingsSwitchCard(
                 title = "Floating widget",
                 subtitle = if (overlayPermissionGranted) {

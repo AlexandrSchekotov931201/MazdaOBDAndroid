@@ -29,8 +29,16 @@ import car.mazda.obd.android.feature.dashboard.MainViewModelFactory
 import car.mazda.obd.android.feature.dashboard.ui.MainScreen
 import car.mazda.obd.android.feature.logs.LogsScreen
 import car.mazda.obd.android.feature.monitor.ObdMonitorStateStore
+import car.mazda.obd.android.feature.monitor.ObdMonitorService
 import car.mazda.obd.android.feature.settings.SettingsScreen
 import car.mazda.obd.android.feature.trip.summary.TripsScreen
+import car.mazda.obd.android.feature.trip.route.TripRouteSettingsViewModel
+import car.mazda.obd.android.feature.trip.route.TripRouteSettingsViewModelFactory
+import car.mazda.obd.android.feature.trip.route.TripRouteViewModel
+import car.mazda.obd.android.feature.trip.route.TripRouteViewModelFactory
+import car.mazda.obd.android.feature.trip.route.TripRouteScreen
+import car.mazda.obd.android.feature.trip.route.LocationPermissionSettingsDialog
+import car.mazda.obd.android.feature.trip.route.LocationPermissionCoordinator
 import car.mazda.obd.android.ui.theme.MazdaOBDAndroidTheme
 import kotlinx.coroutines.launch
 
@@ -47,8 +55,27 @@ open class MainActivity : ComponentActivity() {
         )[MainViewModel::class.java]
     }
 
+    private val routeSettingsViewModel by lazy {
+        ViewModelProvider(
+            this,
+            TripRouteSettingsViewModelFactory(applicationContext),
+        )[TripRouteSettingsViewModel::class.java]
+    }
+
+    private val tripRouteViewModel by lazy {
+        ViewModelProvider(
+            this,
+            TripRouteViewModelFactory(applicationContext),
+        )[TripRouteViewModel::class.java]
+    }
+
+    private val locationPermissionCoordinator = LocationPermissionCoordinator(this) {
+        routeSettingsViewModel.setRecordingEnabled(true)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        locationPermissionCoordinator.restoreState(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             MazdaOBDAndroidTheme {
@@ -56,8 +83,11 @@ open class MainActivity : ComponentActivity() {
                 val scope = rememberCoroutineScope()
                 var screen by rememberSaveable { mutableStateOf("main") }
                 val connectionText by viewModel.connectionTextState.collectAsStateWithLifecycle()
+                val activeTrip by viewModel.activeTripSummaryState.collectAsStateWithLifecycle()
+                val routeState by tripRouteViewModel.state.collectAsStateWithLifecycle()
                 val selectedDestination = when (screen) {
                     "trips" -> AppDrawerDestination.Trips
+                    "trip_route" -> AppDrawerDestination.Trips
                     "logs" -> AppDrawerDestination.Logs
                     "settings" -> AppDrawerDestination.Settings
                     else -> AppDrawerDestination.Dashboard
@@ -65,6 +95,7 @@ open class MainActivity : ComponentActivity() {
 
                 ModalNavigationDrawer(
                     drawerState = drawerState,
+                    gesturesEnabled = screen != "trip_route" || drawerState.isOpen,
                     drawerContent = {
                         AppDrawer(
                             selectedDestination = selectedDestination,
@@ -102,17 +133,42 @@ open class MainActivity : ComponentActivity() {
                             "trips" -> TripsScreen(
                                 modifier = Modifier.padding(innerPadding),
                                 viewModel = viewModel,
-                                onOpenMenu = openDrawer
+                                onOpenMenu = openDrawer,
+                                onOpenTripRoute = { startedAtMs ->
+                                    tripRouteViewModel.showTrip(startedAtMs)
+                                    screen = "trip_route"
+                                }
+                            )
+
+                            "trip_route" -> TripRouteScreen(
+                                modifier = Modifier.padding(innerPadding),
+                                viewModel = tripRouteViewModel,
+                                isActiveTrip = activeTrip?.startedAtMs == routeState.tripStartedAtMs,
+                                onOpenDrawer = openDrawer,
+                                onBack = {
+                                    tripRouteViewModel.clearSelection()
+                                    screen = "trips"
+                                },
                             )
 
                             "settings" -> SettingsScreen(
                                 modifier = Modifier.padding(innerPadding),
                                 viewModel = viewModel,
+                                routeSettingsViewModel = routeSettingsViewModel,
                                 onOpenMenu = openDrawer,
                                 onRequestOverlayPermission = ::openOverlayPermissionSettings,
+                                locationPermissionGranted = locationPermissionCoordinator.permissionGranted,
+                                onSetRouteRecordingEnabled = ::setRouteRecordingEnabled,
                             )
                         }
                     }
+                }
+
+                if (locationPermissionCoordinator.showSettingsPrompt) {
+                    LocationPermissionSettingsDialog(
+                        onOpenSettings = locationPermissionCoordinator::openAppSettings,
+                        onDismiss = locationPermissionCoordinator::dismissSettingsPrompt,
+                    )
                 }
             }
         }
@@ -123,6 +179,16 @@ open class MainActivity : ComponentActivity() {
         ObdMonitorStateStore.update { it.copy(isAppForeground = true) }
         requestWifiPermission()
         requestNotificationPermission()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        locationPermissionCoordinator.onResume()
+        if (!locationPermissionCoordinator.permissionGranted && routeSettingsViewModel.recordingEnabled.value) {
+            routeSettingsViewModel.setRecordingEnabled(false)
+        } else if (locationPermissionCoordinator.permissionGranted && routeSettingsViewModel.recordingEnabled.value) {
+            ObdMonitorService.refreshRouteRecording(applicationContext)
+        }
     }
 
     override fun onStop() {
@@ -168,5 +234,18 @@ open class MainActivity : ComponentActivity() {
                 Uri.parse("package:$packageName"),
             )
         )
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        locationPermissionCoordinator.saveState(outState)
+        super.onSaveInstanceState(outState)
+    }
+
+    private fun setRouteRecordingEnabled(enabled: Boolean) {
+        if (!enabled) {
+            routeSettingsViewModel.setRecordingEnabled(false)
+            return
+        }
+        locationPermissionCoordinator.requestPermissionOrShowSettings()
     }
 }

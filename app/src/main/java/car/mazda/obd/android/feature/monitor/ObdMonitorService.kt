@@ -1,5 +1,6 @@
 package car.mazda.obd.android.feature.monitor
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,10 +8,13 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import car.mazda.obd.android.R
 import car.mazda.obd.android.core.elm.OBDClient
@@ -22,11 +26,16 @@ import car.mazda.obd.android.core.sound.SoundPatterns
 import car.mazda.obd.android.core.sound.SoundPlayer
 import car.mazda.obd.android.core.sound.SpeechPlayer
 import car.mazda.obd.android.feature.dashboard.mapper.MainViewMapper
+import car.mazda.obd.android.feature.location.AndroidLocationDataSource
 import car.mazda.obd.android.feature.trip.EngineRpmSample
 import car.mazda.obd.android.feature.trip.TripState
 import car.mazda.obd.android.feature.trip.TripStateManager
 import car.mazda.obd.android.feature.trip.summary.TripSummaryRepository
 import car.mazda.obd.android.feature.trip.summary.TripSummaryTracker
+import car.mazda.obd.android.feature.trip.route.RouteTelemetry
+import car.mazda.obd.android.feature.trip.route.TripRoutePreferences
+import car.mazda.obd.android.feature.trip.route.TripRouteRecorder
+import car.mazda.obd.android.feature.trip.route.TripRouteRepository
 import car.mazda.obd.android.feature.warmup.EngineTemperatureSample
 import car.mazda.obd.android.feature.warmup.EngineWarmupGuidance
 import car.mazda.obd.android.feature.warmup.WarmupWarning
@@ -63,6 +72,8 @@ class ObdMonitorService : Service() {
     private lateinit var notificationManager: NotificationManager
     private lateinit var overlayController: ObdOverlayController
     private lateinit var preferences: ObdMonitorPreferences
+    private lateinit var routePreferences: TripRoutePreferences
+    private lateinit var routeRecorder: TripRouteRecorder
 
     private var latestRpm = 0
     private var latestValidRpm = 0
@@ -84,6 +95,16 @@ class ObdMonitorService : Service() {
         notificationManager = getSystemService(NotificationManager::class.java)
         overlayController = ObdOverlayController(applicationContext)
         preferences = ObdMonitorPreferences(applicationContext)
+        routePreferences = TripRoutePreferences(applicationContext)
+        routeRecorder = TripRouteRecorder(
+            scope = scope,
+            locationDataSource = AndroidLocationDataSource(applicationContext),
+            repository = TripRouteRepository(applicationContext),
+            telemetry = { RouteTelemetry(latestRpm, latestCoolantTemp) },
+            onPointSaved = {
+                ObdMonitorStateStore.update { it.copy(tripRouteVersion = it.tripRouteVersion + 1) }
+            },
+        )
         createNotificationChannel()
         ObdMonitorStateStore.update {
             it.copy(
@@ -101,6 +122,7 @@ class ObdMonitorService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
+            ACTION_REFRESH_ROUTE_RECORDING -> refreshRouteRecording()
             else -> startMonitoring()
         }
         return if (preferences.continueAfterAppClosed) START_STICKY else START_NOT_STICKY
@@ -119,6 +141,7 @@ class ObdMonitorService : Service() {
     override fun onDestroy() {
         monitorJob?.cancel()
         notificationJob?.cancel()
+        routeRecorder.stop()
         runBlocking(Dispatchers.IO + NonCancellable) {
             sessionManager.stopSession()
         }
@@ -137,7 +160,7 @@ class ObdMonitorService : Service() {
         ObdMonitorStateStore.update {
             it.copy(isRunning = true, connectionText = "Connecting to adapter...")
         }
-        startForeground(NOTIFICATION_ID, buildNotification(ObdMonitorStateStore.state.value))
+        startAsForeground(includeLocation = false)
 
         monitorJob = scope.launch {
             launch { observeSessionState() }
@@ -201,6 +224,11 @@ class ObdMonitorService : Service() {
                 }
             }
             ObdMonitorStateStore.update { it.copy(activeTrip = tripSummaryTracker.activeTrip.value) }
+            if (canRecordRoute()) {
+                routeRecorder.onTripStateChanged(state, tripSummaryTracker.activeTrip.value?.startedAtMs)
+            } else {
+                routeRecorder.stop()
+            }
 
             when (state) {
                 is TripState.Active -> {
@@ -345,6 +373,7 @@ class ObdMonitorService : Service() {
         private const val CHANNEL_ID = "obd_monitoring"
         private const val NOTIFICATION_ID = 42
         private const val ACTION_STOP = "car.mazda.obd.android.action.STOP_OBD_MONITOR"
+        private const val ACTION_REFRESH_ROUTE_RECORDING = "car.mazda.obd.android.action.REFRESH_ROUTE_RECORDING"
         private const val RPM_STALE_HOLD_MS = 2_500L
         private const val RPM_POLL_PERIOD_MS = 250L
         private const val COOLANT_POLL_PERIOD_MS = 1_000L
@@ -360,5 +389,47 @@ class ObdMonitorService : Service() {
                 Intent(context, ObdMonitorService::class.java).setAction(ACTION_STOP)
             )
         }
+
+        fun refreshRouteRecording(context: Context) {
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, ObdMonitorService::class.java).setAction(ACTION_REFRESH_ROUTE_RECORDING),
+            )
+        }
+    }
+
+    private fun refreshRouteRecording() {
+        startMonitoring()
+        val allowed = canRecordRoute()
+        startAsForeground(includeLocation = allowed)
+        if (allowed) {
+            routeRecorder.onTripStateChanged(
+                tripStateManager.tripState.value,
+                tripSummaryTracker.activeTrip.value?.startedAtMs,
+            )
+        } else {
+            routeRecorder.stop()
+        }
+    }
+
+    private fun canRecordRoute(): Boolean =
+        routePreferences.recordingEnabled && (
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            )
+
+    private fun startAsForeground(includeLocation: Boolean) {
+        val types = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+                if (includeLocation) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0
+        } else {
+            0
+        }
+        ServiceCompat.startForeground(
+            this,
+            NOTIFICATION_ID,
+            buildNotification(ObdMonitorStateStore.state.value),
+            types,
+        )
     }
 }

@@ -16,4 +16,5 @@ data class ObdMonitorState(
     val isAppForeground: Boolean = false,
     val activeTrip: ActiveTripSummary? = null,
     val tripSummaryVersion: Long = 0L,
+    val tripRouteVersion: Long = 0L,
 )
