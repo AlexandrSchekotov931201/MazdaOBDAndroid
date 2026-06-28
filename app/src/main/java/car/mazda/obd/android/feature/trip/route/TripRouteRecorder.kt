@@ -17,7 +17,6 @@ class TripRouteRecorder(
     private val repository: TripRouteRepository,
     private val telemetry: () -> RouteTelemetry,
     private val onPointSaved: () -> Unit,
-    private val maxAcceptedAccuracyMeters: Float = 100f,
 ) {
     private var recordingJob: Job? = null
     private var recordingTripStartedAtMs: Long? = null
@@ -42,13 +41,14 @@ class TripRouteRecorder(
         recordingTripStartedAtMs = startedAtMs
         recordingJob = scope.launch {
             val segment = repository.nextSegment(startedAtMs)
+            val locationFilter = TripRouteLocationFilter()
             locationDataSource.locations()
                 .catch { error ->
                     if (error is CancellationException) throw error
                     AppLogger.handledError("Route location stream stopped: ${error.message}")
                 }
                 .collect { location ->
-                    if (location.accuracyMeters > maxAcceptedAccuracyMeters) return@collect
+                    if (!locationFilter.accept(location)) return@collect
                     val snapshot = telemetry()
                     repository.append(
                         TripRoutePoint(

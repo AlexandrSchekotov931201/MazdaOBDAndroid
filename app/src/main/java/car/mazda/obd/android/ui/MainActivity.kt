@@ -101,6 +101,7 @@ open class MainActivity : ComponentActivity() {
 
                 ModalNavigationDrawer(
                     drawerState = drawerState,
+                    gesturesEnabled = screen != "trip_route" || drawerState.isOpen,
                     drawerContent = {
                         AppDrawer(
                             selectedDestination = selectedDestination,
@@ -149,6 +150,7 @@ open class MainActivity : ComponentActivity() {
                                 modifier = Modifier.padding(innerPadding),
                                 viewModel = tripRouteViewModel,
                                 isActiveTrip = activeTrip?.startedAtMs == routeState.tripStartedAtMs,
+                                onOpenDrawer = openDrawer,
                                 onBack = {
                                     tripRouteViewModel.clearSelection()
                                     screen = "trips"

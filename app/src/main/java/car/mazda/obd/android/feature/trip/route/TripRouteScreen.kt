@@ -5,10 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -24,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import car.mazda.obd.android.ui.AppToolbar
@@ -41,22 +40,33 @@ import com.google.maps.android.compose.rememberCameraPositionState
 fun TripRouteScreen(
     viewModel: TripRouteViewModel,
     isActiveTrip: Boolean,
+    onOpenDrawer: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     Column(modifier.fillMaxSize()) {
-        AppToolbar(onOpenMenu = onBack, title = if (isActiveTrip) "Current trip map" else "Trip map", isBackNavigation = true)
+        AppToolbar(
+            onOpenMenu = onBack,
+            title = if (isActiveTrip) "Current trip map" else "Trip map",
+            isBackNavigation = true,
+            modifier = Modifier.openDrawerOnRightSwipe(onOpenDrawer),
+        )
         when {
             state.loading -> CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally).padding(32.dp))
             state.points.isEmpty() -> NoRouteState(isActiveTrip, Modifier.padding(16.dp))
-            else -> RouteContent(state, isActiveTrip, viewModel::deleteSelectedRoute)
+            else -> RouteContent(state, isActiveTrip, onOpenDrawer, viewModel::deleteSelectedRoute)
         }
     }
 }
 
 @Composable
-private fun RouteContent(state: TripRouteUiState, active: Boolean, onDelete: () -> Unit) {
+private fun RouteContent(
+    state: TripRouteUiState,
+    active: Boolean,
+    onOpenDrawer: () -> Unit,
+    onDelete: () -> Unit,
+) {
     val camera = rememberCameraPositionState()
     var mapLoaded by remember { mutableStateOf(false) }
     LaunchedEffect(mapLoaded, state.points.firstOrNull()?.id, state.points.lastOrNull()?.id) {
@@ -71,9 +81,9 @@ private fun RouteContent(state: TripRouteUiState, active: Boolean, onDelete: () 
             }
         }
     }
-    Column(Modifier.verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize()) {
         if (BuildConfig.MAPS_API_KEY_CONFIGURED) GoogleMap(
-            modifier = Modifier.fillMaxWidth().height(430.dp),
+            modifier = Modifier.fillMaxWidth().weight(1f),
             cameraPositionState = camera,
             onMapLoaded = { mapLoaded = true },
         ) {
@@ -89,7 +99,7 @@ private fun RouteContent(state: TripRouteUiState, active: Boolean, onDelete: () 
             state.points.firstOrNull()?.let { Marker(MarkerState(LatLng(it.latitude, it.longitude)), title = "Start") }
             state.points.lastOrNull()?.let { Marker(MarkerState(LatLng(it.latitude, it.longitude)), title = if (active) "Current position" else "Finish") }
         } else Surface(
-            modifier = Modifier.fillMaxWidth().height(180.dp),
+            modifier = Modifier.fillMaxWidth().weight(1f),
             color = MaterialTheme.colorScheme.surfaceVariant,
         ) {
             Text(
@@ -97,16 +107,36 @@ private fun RouteContent(state: TripRouteUiState, active: Boolean, onDelete: () 
                 Modifier.padding(24.dp),
             )
         }
-        RouteMetrics(state.statistics, Modifier.padding(16.dp))
-        if (!active) {
-            OutlinedButton(
-                onClick = onDelete,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-            ) { Text("Delete route data") }
+        Column(Modifier.fillMaxWidth().openDrawerOnRightSwipe(onOpenDrawer)) {
+            RouteMetrics(state.statistics, Modifier.padding(16.dp))
+            if (!active) {
+                OutlinedButton(
+                    onClick = onDelete,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Delete route data") }
+            }
         }
     }
 }
+
+private fun Modifier.openDrawerOnRightSwipe(onOpenDrawer: () -> Unit): Modifier =
+    pointerInput(onOpenDrawer) {
+        var draggedRightPx = 0f
+        val thresholdPx = 64.dp.toPx()
+        detectHorizontalDragGestures(
+            onDragStart = { draggedRightPx = 0f },
+            onHorizontalDrag = { change, dragAmount ->
+                if (dragAmount > 0f) draggedRightPx += dragAmount else draggedRightPx = 0f
+                change.consume()
+            },
+            onDragEnd = {
+                if (draggedRightPx >= thresholdPx) onOpenDrawer()
+                draggedRightPx = 0f
+            },
+            onDragCancel = { draggedRightPx = 0f },
+        )
+    }
 
 @Composable
 private fun NoRouteState(active: Boolean, modifier: Modifier = Modifier) {
