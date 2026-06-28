@@ -33,17 +33,17 @@ data class TemperatureColorSettings(
 }
 
 data class RpmColorSettings(
-    val cautionFromRpm: Int = 2_500,
+    val greenFromRpm: Int = 2_500,
     val dangerFromRpm: Int = 4_000,
 ) {
     init {
-        require(cautionFromRpm < dangerFromRpm)
+        require(greenFromRpm < dangerFromRpm)
     }
 
     fun bandFor(rpm: Int?): RouteColorBand = when {
         rpm == null -> RouteColorBand.Unknown
-        rpm < cautionFromRpm -> RouteColorBand.Green
-        rpm < dangerFromRpm -> RouteColorBand.Yellow
+        rpm < greenFromRpm -> RouteColorBand.Yellow
+        rpm < dangerFromRpm -> RouteColorBand.Green
         else -> RouteColorBand.Red
     }
 }

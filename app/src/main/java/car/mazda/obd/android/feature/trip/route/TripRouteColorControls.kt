@@ -124,19 +124,19 @@ internal fun RouteRangeSettingsDialog(
                     }
                     RouteColorMode.EngineRpm -> {
                         RangeSliderSetting(
-                            label = "Yellow from ${rpmSettings.cautionFromRpm} RPM",
-                            value = rpmSettings.cautionFromRpm.toFloat(),
+                            label = "Green from ${rpmSettings.greenFromRpm} RPM",
+                            value = rpmSettings.greenFromRpm.toFloat(),
                             valueRange = 500f..(rpmSettings.dangerFromRpm - 250).toFloat(),
                             onValueChange = { value ->
                                 onRpmSettingsChanged(
-                                    rpmSettings.copy(cautionFromRpm = value.roundToStep(250))
+                                    rpmSettings.copy(greenFromRpm = value.roundToStep(250))
                                 )
                             },
                         )
                         RangeSliderSetting(
                             label = "Red from ${rpmSettings.dangerFromRpm} RPM",
                             value = rpmSettings.dangerFromRpm.toFloat(),
-                            valueRange = (rpmSettings.cautionFromRpm + 250).toFloat()..8_000f,
+                            valueRange = (rpmSettings.greenFromRpm + 250).toFloat()..8_000f,
                             onValueChange = { value ->
                                 onRpmSettingsChanged(
                                     rpmSettings.copy(dangerFromRpm = value.roundToStep(250))
@@ -180,8 +180,8 @@ private fun legendEntries(
         LegendEntry(RouteColorBand.Unknown, "No data"),
     )
     RouteColorMode.EngineRpm -> listOf(
-        LegendEntry(RouteColorBand.Green, "< ${rpm.cautionFromRpm} RPM"),
-        LegendEntry(RouteColorBand.Yellow, "${rpm.cautionFromRpm}–${rpm.dangerFromRpm - 1} RPM"),
+        LegendEntry(RouteColorBand.Yellow, "< ${rpm.greenFromRpm} RPM"),
+        LegendEntry(RouteColorBand.Green, "${rpm.greenFromRpm}–${rpm.dangerFromRpm - 1} RPM"),
         LegendEntry(RouteColorBand.Red, "≥ ${rpm.dangerFromRpm} RPM"),
     )
 }

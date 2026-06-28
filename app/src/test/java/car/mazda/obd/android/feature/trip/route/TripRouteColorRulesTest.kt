@@ -32,16 +32,16 @@ class TripRouteColorRulesTest {
     fun `rpm defaults classify all boundaries`() {
         val settings = RpmColorSettings()
 
-        assertEquals(RouteColorBand.Green, settings.bandFor(2_499))
-        assertEquals(RouteColorBand.Yellow, settings.bandFor(2_500))
+        assertEquals(RouteColorBand.Yellow, settings.bandFor(2_499))
+        assertEquals(RouteColorBand.Green, settings.bandFor(2_500))
         assertEquals(RouteColorBand.Red, settings.bandFor(4_000))
     }
 
     @Test
     fun `rpm uses configured boundaries`() {
-        val settings = RpmColorSettings(cautionFromRpm = 2_000, dangerFromRpm = 3_500)
+        val settings = RpmColorSettings(greenFromRpm = 2_000, dangerFromRpm = 3_500)
 
-        assertEquals(RouteColorBand.Yellow, settings.bandFor(2_000))
+        assertEquals(RouteColorBand.Green, settings.bandFor(2_000))
         assertEquals(RouteColorBand.Red, settings.bandFor(3_500))
     }
 }
