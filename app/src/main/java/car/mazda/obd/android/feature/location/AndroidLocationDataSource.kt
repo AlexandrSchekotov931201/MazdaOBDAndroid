@@ -1,8 +1,10 @@
 package car.mazda.obd.android.feature.location
 
-import android.annotation.SuppressLint
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Looper
+import androidx.core.content.ContextCompat
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
@@ -13,10 +15,23 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 
 class AndroidLocationDataSource(context: Context) : LocationDataSource {
-    private val client = LocationServices.getFusedLocationProviderClient(context.applicationContext)
+    private val appContext = context.applicationContext
+    private val client = LocationServices.getFusedLocationProviderClient(appContext)
 
-    @SuppressLint("MissingPermission")
     override fun locations(): Flow<DeviceLocation> = callbackFlow {
+        val hasFineLocation = ContextCompat.checkSelfPermission(
+            appContext,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+        val hasCoarseLocation = ContextCompat.checkSelfPermission(
+            appContext,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!hasFineLocation && !hasCoarseLocation) {
+            close(SecurityException("Location permission is required to record a trip route"))
+            return@callbackFlow
+        }
+
         val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, UPDATE_INTERVAL_MS)
             .setMinUpdateIntervalMillis(MIN_UPDATE_INTERVAL_MS)
             .setMinUpdateDistanceMeters(MIN_UPDATE_DISTANCE_METERS)
