@@ -1,12 +1,12 @@
 package car.mazda.obd.android.feature.trip.route
 
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -21,12 +21,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import car.mazda.obd.android.ui.AppToolbar
 import car.mazda.obd.android.BuildConfig
+import car.mazda.obd.android.ui.AppToolbar
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.LatLngBounds
@@ -69,6 +68,11 @@ private fun RouteContent(
 ) {
     val camera = rememberCameraPositionState()
     var mapLoaded by remember { mutableStateOf(false) }
+    var colorMode by remember { mutableStateOf(RouteColorMode.CoolantTemperature) }
+    var temperatureSettings by remember { mutableStateOf(TemperatureColorSettings()) }
+    var rpmSettings by remember { mutableStateOf(RpmColorSettings()) }
+    var showRangeSettings by remember { mutableStateOf(false) }
+
     LaunchedEffect(mapLoaded, state.points.firstOrNull()?.id, state.points.lastOrNull()?.id) {
         if (!mapLoaded || !BuildConfig.MAPS_API_KEY_CONFIGURED) return@LaunchedEffect
         val coordinates = state.points.map { LatLng(it.latitude, it.longitude) }
@@ -81,34 +85,60 @@ private fun RouteContent(
             }
         }
     }
+
     Column(Modifier.fillMaxSize()) {
-        if (BuildConfig.MAPS_API_KEY_CONFIGURED) GoogleMap(
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            cameraPositionState = camera,
-            onMapLoaded = { mapLoaded = true },
-        ) {
-            state.points.groupBy { it.segment }.values.forEach { segment ->
-                segment.zipWithNext().forEach { (from, to) ->
-                    Polyline(
-                        points = listOf(LatLng(from.latitude, from.longitude), LatLng(to.latitude, to.longitude)),
-                        color = temperatureColor(to.coolantTempCelsius),
-                        width = 11f,
+        if (BuildConfig.MAPS_API_KEY_CONFIGURED) {
+            GoogleMap(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                cameraPositionState = camera,
+                onMapLoaded = { mapLoaded = true },
+            ) {
+                state.points.groupBy { it.segment }.values.forEach { segment ->
+                    segment.zipWithNext().forEach { (from, to) ->
+                        Polyline(
+                            points = listOf(LatLng(from.latitude, from.longitude), LatLng(to.latitude, to.longitude)),
+                            color = to.colorBand(colorMode, temperatureSettings, rpmSettings).displayColor(),
+                            width = 11f,
+                        )
+                    }
+                }
+                state.points.firstOrNull()?.let {
+                    Marker(MarkerState(LatLng(it.latitude, it.longitude)), title = "Start")
+                }
+                state.points.lastOrNull()?.let {
+                    Marker(
+                        MarkerState(LatLng(it.latitude, it.longitude)),
+                        title = if (active) "Current position" else "Finish",
                     )
                 }
             }
-            state.points.firstOrNull()?.let { Marker(MarkerState(LatLng(it.latitude, it.longitude)), title = "Start") }
-            state.points.lastOrNull()?.let { Marker(MarkerState(LatLng(it.latitude, it.longitude)), title = if (active) "Current position" else "Finish") }
-        } else Surface(
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-        ) {
-            Text(
-                "Route data is recorded. Add MAPS_API_KEY to Gradle properties to display the map tiles.",
-                Modifier.padding(24.dp),
-            )
+        } else {
+            Surface(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+            ) {
+                Text(
+                    "Route data is recorded. Add MAPS_API_KEY to Gradle properties to display the map tiles.",
+                    Modifier.padding(24.dp),
+                )
+            }
         }
-        Column(Modifier.fillMaxWidth().openDrawerOnRightSwipe(onOpenDrawer)) {
-            RouteMetrics(state.statistics, Modifier.padding(16.dp))
+
+        Column(Modifier.fillMaxWidth()) {
+            RouteMetrics(
+                state.statistics,
+                Modifier
+                    .openDrawerOnRightSwipe(onOpenDrawer)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+            )
+            RouteColorControls(
+                mode = colorMode,
+                temperatureSettings = temperatureSettings,
+                rpmSettings = rpmSettings,
+                onModeSelected = { colorMode = it },
+                onOpenSettings = { showRangeSettings = true },
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
             if (!active) {
                 OutlinedButton(
                     onClick = onDelete,
@@ -117,6 +147,21 @@ private fun RouteContent(
                 ) { Text("Delete route data") }
             }
         }
+    }
+
+    if (showRangeSettings) {
+        RouteRangeSettingsDialog(
+            mode = colorMode,
+            temperatureSettings = temperatureSettings,
+            rpmSettings = rpmSettings,
+            onTemperatureSettingsChanged = { temperatureSettings = it },
+            onRpmSettingsChanged = { rpmSettings = it },
+            onReset = {
+                temperatureSettings = TemperatureColorSettings()
+                rpmSettings = RpmColorSettings()
+            },
+            onDismiss = { showRangeSettings = false },
+        )
     }
 }
 
@@ -151,10 +196,12 @@ private fun NoRouteState(active: Boolean, modifier: Modifier = Modifier) {
 
 @Composable
 private fun RouteMetrics(statistics: RouteStatistics, modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
         Metric("Distance", "%.1f km".format(statistics.distanceMeters / 1_000.0))
-        Metric("Max GPS speed", statistics.maximumSpeedMetersPerSecond?.let { "%.0f km/h".format(it * 3.6f) } ?: "—")
-        Metric("GPS points", statistics.recordedPointCount.toString())
+        Metric(
+            "Max GPS speed",
+            statistics.maximumSpeedMetersPerSecond?.let { "%.0f km/h".format(it * 3.6f) } ?: "—",
+        )
     }
 }
 
@@ -164,12 +211,4 @@ private fun Metric(label: String, value: String) {
         Text(label, style = MaterialTheme.typography.labelSmall)
         Text(value, style = MaterialTheme.typography.titleSmall)
     }
-}
-
-private fun temperatureColor(celsius: Int?): Color = when {
-    celsius == null -> Color(0xFF78909C)
-    celsius < 50 -> Color(0xFF1976D2)
-    celsius < 70 -> Color(0xFFFFA000)
-    celsius < 105 -> Color(0xFF2E7D32)
-    else -> Color(0xFFC62828)
 }
