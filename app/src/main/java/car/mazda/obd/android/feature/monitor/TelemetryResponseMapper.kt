@@ -1,4 +1,4 @@
-package car.mazda.obd.android.feature.dashboard.mapper
+package car.mazda.obd.android.feature.monitor
 
 import car.mazda.obd.android.core.elm.entity.OBDData
 import car.mazda.obd.android.core.elm.entity.OBDResponse
@@ -6,7 +6,7 @@ import car.mazda.obd.android.core.logs.AppLogger
 import car.mazda.obd.android.feature.trip.EngineRpmSample
 import car.mazda.obd.android.feature.warmup.EngineTemperatureSample
 
-class MainViewMapper {
+class TelemetryResponseMapper {
 
     private companion object {
         private const val ENGINE_COOLANT_TEMP_PID = "05"

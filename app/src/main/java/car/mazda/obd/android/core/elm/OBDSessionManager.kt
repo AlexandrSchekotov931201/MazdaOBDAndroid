@@ -19,11 +19,11 @@ import kotlin.coroutines.coroutineContext
 class OBDSessionManager(
     private val client: OBDClient,
     private val scope: CoroutineScope,
+    private val requiredPids: Set<Int>,
 ) {
     private companion object {
         const val RECONNECT_DELAY_MS = 5000L
         const val FAILURES_BEFORE_REDISCOVERY = 3
-        val REQUIRED_STANDARD_PIDS = setOf(0x05, 0x0C)
     }
 
     private val _sessionState = MutableStateFlow<OBDSessionState>(OBDSessionState.Idle)
@@ -48,7 +48,7 @@ class OBDSessionManager(
 
             if (!capabilityDiscoveryAttempted) {
                 AppLogger.log("Discovering capabilities for active standard OBD-II PIDs")
-                _capabilities.value = client.discoverCapabilities(REQUIRED_STANDARD_PIDS)
+                _capabilities.value = client.discoverCapabilities(requiredPids)
                 capabilityDiscoveryAttempted = true
             } else {
                 AppLogger.log("Reusing cached OBD-II capabilities after transport reconnect")

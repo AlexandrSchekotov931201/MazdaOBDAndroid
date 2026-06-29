@@ -4,7 +4,7 @@ import car.mazda.obd.android.core.elm.entity.OBDData
 import car.mazda.obd.android.core.elm.entity.OBDRequest
 import car.mazda.obd.android.core.elm.entity.OBDResponse
 import car.mazda.obd.android.core.elm.mapper.OBDDataMapper
-import car.mazda.obd.android.feature.dashboard.mapper.MainViewMapper
+import car.mazda.obd.android.feature.monitor.TelemetryResponseMapper
 import car.mazda.obd.android.feature.trip.EngineRpmSample
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -69,7 +69,7 @@ class OBDDataMapperTest {
 
     @Test
     fun acceptsStandardPidFromAnUnfamiliarEcuAddress() {
-        val sample = MainViewMapper().mapEngineRpm(
+        val sample = TelemetryResponseMapper().mapEngineRpm(
             OBDResponse.Data(listOf(OBDData("6A0", "0C", listOf("1A", "F8")))),
         )
 

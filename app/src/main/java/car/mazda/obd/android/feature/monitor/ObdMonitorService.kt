@@ -18,15 +18,16 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import car.mazda.obd.android.R
 import car.mazda.obd.android.core.elm.OBDClient
-import car.mazda.obd.android.core.elm.OBDDataReader
 import car.mazda.obd.android.core.elm.OBDSessionManager
 import car.mazda.obd.android.core.elm.OBDSessionState
-import car.mazda.obd.android.core.elm.entity.OBDRequest
+import car.mazda.obd.android.core.elm.transport.WifiElmTransport
 import car.mazda.obd.android.core.logs.AppLogger
 import car.mazda.obd.android.core.sound.SoundPatterns
 import car.mazda.obd.android.core.sound.SoundPlayer
 import car.mazda.obd.android.core.sound.SpeechPlayer
-import car.mazda.obd.android.feature.dashboard.mapper.MainViewMapper
+import car.mazda.obd.android.core.telemetry.StandardPidCatalog
+import car.mazda.obd.android.core.telemetry.TelemetryMetric
+import car.mazda.obd.android.core.telemetry.TelemetryPollingEngine
 import car.mazda.obd.android.feature.location.AndroidLocationDataSource
 import car.mazda.obd.android.feature.trip.EngineRpmSample
 import car.mazda.obd.android.feature.trip.TripState
@@ -59,7 +60,8 @@ import kotlinx.coroutines.runBlocking
 class ObdMonitorService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val viewMapper = MainViewMapper()
+    private val pollingTargets = StandardPidCatalog.Default
+    private val responseMapper = TelemetryResponseMapper()
     private val tripStateManager = TripStateManager(scope)
     private val warmupWarningManager = WarmupWarningManager()
     private val tripSummaryTracker = TripSummaryTracker()
@@ -67,7 +69,7 @@ class ObdMonitorService : Service() {
 
     private lateinit var client: OBDClient
     private lateinit var sessionManager: OBDSessionManager
-    private lateinit var dataReader: OBDDataReader
+    private lateinit var pollingEngine: TelemetryPollingEngine
     private lateinit var speechPlayer: SpeechPlayer
     private lateinit var tripSummaryRepository: TripSummaryRepository
     private lateinit var notificationManager: NotificationManager
@@ -88,9 +90,13 @@ class ObdMonitorService : Service() {
         val connectivityManager = requireNotNull(getSystemService(ConnectivityManager::class.java)) {
             "ConnectivityManager is required for OBD Wi-Fi routing"
         }
-        client = OBDClient(connectivityManager)
-        sessionManager = OBDSessionManager(client, scope)
-        dataReader = OBDDataReader(client = client, sessionManager = sessionManager)
+        client = OBDClient(WifiElmTransport(connectivityManager))
+        sessionManager = OBDSessionManager(
+            client = client,
+            scope = scope,
+            requiredPids = pollingTargets.mapTo(mutableSetOf()) { it.pid },
+        )
+        pollingEngine = TelemetryPollingEngine(client = client, sessionManager = sessionManager)
         speechPlayer = SpeechPlayer(applicationContext)
         tripSummaryRepository = TripSummaryRepository(applicationContext)
         notificationManager = getSystemService(NotificationManager::class.java)
@@ -250,18 +256,16 @@ class ObdMonitorService : Service() {
     }
 
     private suspend fun observeTelemetryState() {
-        dataReader.telemetryFlow(
-            rpmPeriodMs = RPM_POLL_PERIOD_MS,
-            coolantPeriodMs = COOLANT_POLL_PERIOD_MS,
-        )
+        pollingEngine.telemetryFlow(pollingTargets)
             .catch { t -> AppLogger.log("telemetryFlow error: ${t.message}") }
             .collect { result ->
-                when (result.request) {
-                    OBDRequest.EngineRpm -> handleEngineRpm(viewMapper.mapEngineRpm(result.response))
-                    OBDRequest.EngineCoolantTemperature -> {
-                        handleCoolantTemperature(viewMapper.mapEngineCoolantTemperature(result.response))
+                when (result.target.metric) {
+                    TelemetryMetric.EngineRpm -> {
+                        handleEngineRpm(responseMapper.mapEngineRpm(result.response))
                     }
-                    is OBDRequest.SupportedPids -> Unit
+                    TelemetryMetric.CoolantTemperature -> {
+                        handleCoolantTemperature(responseMapper.mapEngineCoolantTemperature(result.response))
+                    }
                 }
             }
     }
@@ -382,8 +386,6 @@ class ObdMonitorService : Service() {
         private const val ACTION_STOP = "car.mazda.obd.android.action.STOP_OBD_MONITOR"
         private const val ACTION_REFRESH_ROUTE_RECORDING = "car.mazda.obd.android.action.REFRESH_ROUTE_RECORDING"
         private const val RPM_STALE_HOLD_MS = 2_500L
-        private const val RPM_POLL_PERIOD_MS = 250L
-        private const val COOLANT_POLL_PERIOD_MS = 1_000L
         private const val INITIAL_RECONNECT_DELAY_MS = 10_000L
 
         fun start(context: Context) {
