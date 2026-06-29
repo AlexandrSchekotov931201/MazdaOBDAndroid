@@ -7,6 +7,7 @@ import car.mazda.obd.android.core.elm.mapper.OBDDataMapper
 import car.mazda.obd.android.feature.dashboard.mapper.MainViewMapper
 import car.mazda.obd.android.feature.trip.EngineRpmSample
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -48,14 +49,22 @@ class OBDDataMapperTest {
 
     @Test
     fun decodesSupportedPidBitmapAndBuildsRangeRequest() {
-        val supported = SupportedPidDecoder.decode(
+        val supportedByEcu = SupportedPidDecoder.decodeByEcu(
             basePid = 0x00,
-            responses = listOf(OBDData("7E8", "00", listOf("08", "10", "00", "01"))),
+            responses = listOf(
+                OBDData("7E8", "00", listOf("08", "10", "00", "01")),
+                OBDData("7E9", "00", listOf("08", "00", "00", "00")),
+            ),
         )
 
-        assertEquals(setOf(0x05, 0x0C, 0x20), supported)
+        assertEquals(setOf(0x05, 0x0C, 0x20), supportedByEcu.getValue("7E8"))
+        assertEquals(setOf(0x05), supportedByEcu.getValue("7E9"))
         assertEquals("0120", OBDRequest.SupportedPids(0x20).value)
-        assertTrue(VehicleCapabilities(true, supported).supports(0x0C))
+        val capabilities = VehicleCapabilities(setOf(0x00), supportedByEcu)
+        assertTrue(capabilities.supports(0x0C))
+        assertFalse(capabilities.supports(0x0D))
+        assertTrue(capabilities.supports(0x21))
+        assertEquals("7E8", capabilities.preferredEcuFor(0x0C))
     }
 
     @Test
@@ -65,5 +74,27 @@ class OBDDataMapperTest {
         )
 
         assertEquals(EngineRpmSample.Value(1726), sample)
+    }
+
+    @Test
+    fun rejectsStalePidAndSelectsPreferredEcu() {
+        val stale = OBDResponseCorrelator.correlate(
+            response = OBDResponse.Data(listOf(OBDData("7E8", "0C", listOf("1A", "F8")))),
+            request = OBDRequest.EngineCoolantTemperature,
+            preferredEcu = "7E8",
+        )
+        val selected = OBDResponseCorrelator.correlate(
+            response = OBDResponse.Data(
+                listOf(
+                    OBDData("7E8", "0C", listOf("1A", "F8")),
+                    OBDData("7E9", "0C", listOf("10", "00")),
+                ),
+            ),
+            request = OBDRequest.EngineRpm,
+            preferredEcu = "7E9",
+        ) as OBDResponse.Data
+
+        assertTrue(stale is OBDResponse.NoData.Mismatched)
+        assertEquals("7E9", selected.data.single().canId)
     }
 }

@@ -10,6 +10,7 @@ import car.mazda.obd.android.core.elm.entity.ElmCommand
 import car.mazda.obd.android.core.elm.entity.OBDRequest
 import car.mazda.obd.android.core.elm.entity.OBDResponse
 import car.mazda.obd.android.core.elm.exception.AdapterUnreachableException
+import car.mazda.obd.android.core.elm.exception.ElmPromptTimeoutException
 import car.mazda.obd.android.core.elm.exception.LostConnectionException
 import car.mazda.obd.android.core.elm.exception.NetworkUnavailableException
 import car.mazda.obd.android.core.elm.exception.ProtocolException
@@ -194,49 +195,60 @@ class OBDClient(
         }
     }
 
-    suspend fun requestObd(request: OBDRequest): OBDResponse = mutex.withLock {
-        return unlockedRequestObd(request)
+    suspend fun requestObd(
+        request: OBDRequest,
+        preferredEcu: String? = null,
+    ): OBDResponse = mutex.withLock {
+        val firstResponse = unlockedRequestObd(request, preferredEcu)
+        if (firstResponse !is OBDResponse.NoData.Mismatched) return@withLock firstResponse
+
+        AppLogger.event(
+            level = Level.HandledError,
+            layer = Layer.Parser,
+            operation = request.value.operationName(),
+            message = "Discarding stale/mismatched response and retrying request once",
+            raw = firstResponse.raw,
+        )
+        unlockedRequestObd(request, preferredEcu)
     }
 
-    suspend fun discoverCapabilities(): VehicleCapabilities = mutex.withLock {
-        val supported = mutableSetOf<Int>()
-        var basePid = 0x00
-        var receivedAnyData = false
+    suspend fun discoverCapabilities(requiredPids: Set<Int>): VehicleCapabilities = mutex.withLock {
+        val discoveredRanges = mutableSetOf<Int>()
+        val supportedByEcu = mutableMapOf<String, MutableSet<Int>>()
 
-        while (basePid <= 0xE0) {
+        requiredPids.map(VehicleCapabilities::rangeFor).distinct().sorted().forEach { basePid ->
             val response = unlockedRequestObd(OBDRequest.SupportedPids(basePid))
-            if (response !is OBDResponse.Data) break
+            if (response !is OBDResponse.Data) return@forEach
 
-            val expectedPid = basePid.toString(16).uppercase().padStart(2, '0')
-            val matchingResponses = response.data.filter {
-                it.pid.equals(expectedPid, ignoreCase = true)
+            SupportedPidDecoder.decodeByEcu(basePid, response.data).forEach { (ecu, pids) ->
+                supportedByEcu.getOrPut(ecu) { mutableSetOf() } += pids
             }
-            if (matchingResponses.isEmpty()) break
-
-            receivedAnyData = true
-            val range = SupportedPidDecoder.decode(basePid, matchingResponses)
-            supported += range
-            val nextRangePid = basePid + 0x20
-            if (nextRangePid !in range) break
-            basePid = nextRangePid
+            discoveredRanges += basePid
         }
 
         VehicleCapabilities(
-            discoveryComplete = receivedAnyData,
-            supportedPids = supported,
+            discoveredRanges = discoveredRanges,
+            supportedPidsByEcu = supportedByEcu.mapValues { it.value.toSet() },
         )
     }
 
     private fun unlockedRequestElm(cmd: ElmCommand): OBDResponse =
         unlockedRequest(cmd.value)
 
-    private fun unlockedRequestObd(req: OBDRequest): OBDResponse {
-        return unlockedRequest(req.value).also { response ->
-            if (!protocolEstablished && response is OBDResponse.Data) {
+    private fun unlockedRequestObd(
+        req: OBDRequest,
+        preferredEcu: String? = null,
+    ): OBDResponse {
+        val response = unlockedRequest(req.value)
+        if (response is OBDResponse.Data) {
+            if (!protocolEstablished) {
                 protocolEstablished = true
                 socket?.soTimeout = NORMAL_READ_TIMEOUT_MS
             }
+
+            return OBDResponseCorrelator.correlate(response, req, preferredEcu)
         }
+        return response
     }
 
     private fun unlockedRequest(request: String): OBDResponse {
@@ -270,8 +282,15 @@ class OBDClient(
             val ch = try {
                 r.read()
             } catch (e: SocketTimeoutException) {
-                AppLogger.event(Level.Error, Layer.Network, Direction.Rx, "socket-read", "Timed out waiting for ELM prompt", exchangeId, sb.toString(), e)
-                throw AdapterUnreachableException("Read timeout on request: $request", e)
+                val partialRaw = sb.toString()
+                val containedObdData = dataMapper.map(partialRaw) is OBDResponse.Data
+                val message = if (containedObdData) {
+                    "ELM returned OBD frames without the terminating prompt; reconnect required"
+                } else {
+                    "Timed out waiting for ELM prompt"
+                }
+                AppLogger.event(Level.Error, Layer.Network, Direction.Rx, "socket-read", message, exchangeId, partialRaw, e)
+                throw ElmPromptTimeoutException(partialRaw, containedObdData, e)
             } catch (e: Throwable) {
                 AppLogger.event(Level.Error, Layer.Network, Direction.Rx, "socket-read", "Read failed", exchangeId, sb.toString(), e)
                 throw LostConnectionException("Read failed: ${e.message}", e)
@@ -366,7 +385,10 @@ class OBDClient(
     private fun OBDResponse.logLevel(): Level = when (this) {
         is OBDResponse.Data -> Level.Info
         is OBDResponse.NoData.Searching -> Level.Info
-        is OBDResponse.NoData.CanError, is OBDResponse.NoData.Empty, is OBDResponse.NoData.Unrecognized -> Level.HandledError
+        is OBDResponse.NoData.CanError,
+        is OBDResponse.NoData.Empty,
+        is OBDResponse.NoData.Unrecognized,
+        is OBDResponse.NoData.Mismatched -> Level.HandledError
         is OBDResponse.NoData.Error -> Level.Error
     }
 
@@ -376,6 +398,7 @@ class OBDClient(
         is OBDResponse.NoData.Searching -> "Adapter is searching for a protocol"
         is OBDResponse.NoData.Empty -> "Adapter reported NO DATA"
         is OBDResponse.NoData.Unrecognized -> "Response did not match any known ELM/OBD format"
+        is OBDResponse.NoData.Mismatched -> "Response did not match requested PID ${expectedPid}: ${actualSources.joinToString()}"
         is OBDResponse.NoData.Error -> "Response parsing failed"
     }
 

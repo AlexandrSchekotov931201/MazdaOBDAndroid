@@ -49,7 +49,15 @@ class OBDDataReader(
             if (nowMs < nextRpmAtMs) delay(nextRpmAtMs - nowMs)
 
             if (capabilities.supports(ENGINE_RPM_PID)) {
-                emit(PollResult(OBDRequest.EngineRpm, safeRequest(OBDRequest.EngineRpm)))
+                emit(
+                    PollResult(
+                        OBDRequest.EngineRpm,
+                        safeRequest(
+                            OBDRequest.EngineRpm,
+                            capabilities.preferredEcuFor(ENGINE_RPM_PID),
+                        ),
+                    ),
+                )
             }
             nextRpmAtMs += rpmPeriodMs
 
@@ -59,7 +67,10 @@ class OBDDataReader(
                     emit(
                         PollResult(
                             OBDRequest.EngineCoolantTemperature,
-                            safeRequest(OBDRequest.EngineCoolantTemperature),
+                            safeRequest(
+                                OBDRequest.EngineCoolantTemperature,
+                                capabilities.preferredEcuFor(COOLANT_TEMPERATURE_PID),
+                            ),
                         ),
                     )
                 }
@@ -73,8 +84,10 @@ class OBDDataReader(
         }
     }
 
-    private suspend fun safeRequest(request: OBDRequest): OBDResponse = try {
-        client.requestObd(request)
+    private suspend fun safeRequest(request: OBDRequest, preferredEcu: String?): OBDResponse = try {
+        client.requestObd(request, preferredEcu).also { response ->
+            if (response is OBDResponse.Data) sessionManager.onValidObdData()
+        }
     } catch (t: Throwable) {
         if (t is CancellationException) throw t
         sessionManager.requestReconnect(t)

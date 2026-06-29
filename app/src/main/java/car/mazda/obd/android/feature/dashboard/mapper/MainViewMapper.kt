@@ -44,6 +44,11 @@ class MainViewMapper {
                         EngineRpmSample.NoData
                     }
 
+                    is OBDResponse.NoData.Mismatched -> {
+                        AppLogger.handledError("Discarded mismatched RPM response: expected=${response.expectedPid} actual=${response.actualSources}")
+                        EngineRpmSample.NoData
+                    }
+
                     is OBDResponse.NoData.Error -> {
                         AppLogger.handledError(
                             "Handled RPM response error: pid=010C error=${response.throwable::class.simpleName}: ${response.throwable.message} raw=${response.raw.compactRaw()}"
@@ -88,6 +93,11 @@ class MainViewMapper {
 
                     is OBDResponse.NoData.Unrecognized -> {
                         AppLogger.handledError("Handled $unrecognizedLogPrefix: pid=$pid raw=${response.raw.compactRaw()}")
+                        EngineTemperatureSample.NoData
+                    }
+
+                    is OBDResponse.NoData.Mismatched -> {
+                        AppLogger.handledError("Discarded mismatched temperature response: expected=${response.expectedPid} actual=${response.actualSources}")
                         EngineTemperatureSample.NoData
                     }
 

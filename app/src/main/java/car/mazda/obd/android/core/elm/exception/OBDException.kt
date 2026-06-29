@@ -17,6 +17,20 @@ class AdapterUnreachableException(
     cause: Throwable? = null
 ) : OBDException(message, cause)
 
+/** The adapter returned bytes but failed to terminate the ELM response with a prompt. */
+class ElmPromptTimeoutException(
+    val partialRaw: String,
+    val containedObdData: Boolean,
+    cause: Throwable? = null,
+) : OBDException(
+    message = if (containedObdData) {
+        "ELM returned OBD data but did not send the terminating prompt"
+    } else {
+        "ELM did not send the terminating prompt"
+    },
+    cause = cause,
+)
+
 /** Connection was lost while reading, writing, or when the remote socket closed. */
 class LostConnectionException(
     message: String = "Lost connection",
