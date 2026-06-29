@@ -4,7 +4,9 @@ sealed class ElmCommand(val value: String) {
     data object Reset : ElmCommand("ATZ")
     data object EchoOff : ElmCommand("ATE0")
     data object LineFeedsOff : ElmCommand("ATL0")
+    data object SpacesOn : ElmCommand("ATS1")
     data object HeadersOn : ElmCommand("ATH1")
+    data object AdaptiveTiming : ElmCommand("ATAT1")
     data object AutoProtocol : ElmCommand("ATSP0")
     data class SetHeader(val canId: String) : ElmCommand("ATSH$canId")
     data object Identify : ElmCommand("ATI")
@@ -19,7 +21,9 @@ sealed class ElmCommand(val value: String) {
             Reset,
             EchoOff,
             LineFeedsOff,
+            SpacesOn,
             HeadersOn,
+            AdaptiveTiming,
             AutoProtocol,
         )
     }

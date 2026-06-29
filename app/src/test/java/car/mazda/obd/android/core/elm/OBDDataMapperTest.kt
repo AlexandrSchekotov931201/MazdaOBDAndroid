@@ -4,6 +4,8 @@ import car.mazda.obd.android.core.elm.entity.OBDData
 import car.mazda.obd.android.core.elm.entity.OBDRequest
 import car.mazda.obd.android.core.elm.entity.OBDResponse
 import car.mazda.obd.android.core.elm.mapper.OBDDataMapper
+import car.mazda.obd.android.feature.dashboard.mapper.MainViewMapper
+import car.mazda.obd.android.feature.trip.EngineRpmSample
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -26,6 +28,15 @@ class OBDDataMapperTest {
     }
 
     @Test
+    fun parsesCompactCanResponsesWhenAdapterDoesNotInsertSpaces() {
+        val elevenBit = mapper.map("7E804410C1AF8\r>") as OBDResponse.Data
+        val twentyNineBit = mapper.map("18DAF11004410C1AF8\r>") as OBDResponse.Data
+
+        assertEquals(OBDData("7E8", "0C", listOf("1A", "F8")), elevenBit.data.single())
+        assertEquals(OBDData("18DAF110", "0C", listOf("1A", "F8")), twentyNineBit.data.single())
+    }
+
+    @Test
     fun parsesHeaderlessAndLegacyProtocolResponses() {
         val headerless = mapper.map("41 0C 1A F8\r>") as OBDResponse.Data
         val legacy = mapper.map("48 6B 10 41 05 7B A1\r>") as OBDResponse.Data
@@ -45,5 +56,14 @@ class OBDDataMapperTest {
         assertEquals(setOf(0x05, 0x0C, 0x20), supported)
         assertEquals("0120", OBDRequest.SupportedPids(0x20).value)
         assertTrue(VehicleCapabilities(true, supported).supports(0x0C))
+    }
+
+    @Test
+    fun acceptsStandardPidFromAnUnfamiliarEcuAddress() {
+        val sample = MainViewMapper().mapEngineRpm(
+            OBDResponse.Data(listOf(OBDData("6A0", "0C", listOf("1A", "F8")))),
+        )
+
+        assertEquals(EngineRpmSample.Value(1726), sample)
     }
 }

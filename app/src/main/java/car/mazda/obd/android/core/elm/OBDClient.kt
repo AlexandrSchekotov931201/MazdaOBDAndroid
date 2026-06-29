@@ -42,7 +42,8 @@ class OBDClient(
 
     private companion object {
         private const val CONNECT_TIMEOUT_MS = 10_000
-        private const val READ_TIMEOUT_MS = 2_000
+        private const val INITIAL_READ_TIMEOUT_MS = 15_000
+        private const val NORMAL_READ_TIMEOUT_MS = 5_000
         private const val NETWORK_REQUEST_TIMEOUT_MS = 3_000L
         private const val PROD_FLAVOR = "prod"
     }
@@ -50,6 +51,7 @@ class OBDClient(
     private var socket: Socket? = null
     private var reader: BufferedReader? = null
     private var writer: OutputStreamWriter? = null
+    private var protocolEstablished = false
 
     private val dataMapper = OBDDataMapper()
 
@@ -65,7 +67,7 @@ class OBDClient(
 
             val s = createSocket()
             s.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
-            s.soTimeout = READ_TIMEOUT_MS
+            s.soTimeout = INITIAL_READ_TIMEOUT_MS
 
             socket = s
             reader = BufferedReader(InputStreamReader(s.getInputStream()))
@@ -229,7 +231,12 @@ class OBDClient(
         unlockedRequest(cmd.value)
 
     private fun unlockedRequestObd(req: OBDRequest): OBDResponse {
-        return unlockedRequest(req.value)
+        return unlockedRequest(req.value).also { response ->
+            if (!protocolEstablished && response is OBDResponse.Data) {
+                protocolEstablished = true
+                socket?.soTimeout = NORMAL_READ_TIMEOUT_MS
+            }
+        }
     }
 
     private fun unlockedRequest(request: String): OBDResponse {
@@ -329,6 +336,7 @@ class OBDClient(
         writer = null
         reader = null
         socket = null
+        protocolEstablished = false
     }
 
     private fun logConnectionFailure(t: Throwable) {
@@ -341,7 +349,9 @@ class OBDClient(
         "ATZ" -> "adapter-reset"
         "ATE0" -> "echo-off"
         "ATL0" -> "linefeeds-off"
+        "ATS1" -> "spaces-on"
         "ATH1" -> "headers-on"
+        "ATAT1" -> "adaptive-timing"
         "ATSP0" -> "auto-protocol"
         "ATSH${CanIds.ENGINE_ECU_REQUEST}" -> "engine-ecu-header"
         "ATI" -> "adapter-identification"

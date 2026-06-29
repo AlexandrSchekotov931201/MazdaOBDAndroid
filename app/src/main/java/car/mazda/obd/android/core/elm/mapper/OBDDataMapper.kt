@@ -67,8 +67,7 @@ class OBDDataMapper {
             if (upper.contains(OBD_SERVICE_ERROR)) return@forEach
             if (ln == ELM_PROMPT) return@forEach
 
-            val parts = ln.split(Regex("\\s+"))
-                .filter { it.matches(Regex("[0-9A-Fa-f]{2,8}")) }
+            val parts = tokenizeHexLine(ln)
             val modeIndex = parts.indexOfFirst { it.equals(OBD_CURRENT_DATA_RESPONSE, ignoreCase = true) }
             if (modeIndex < 0 || modeIndex + 1 >= parts.size) return@forEach
 
@@ -99,6 +98,29 @@ class OBDDataMapper {
 
         return result
     }
+
+    private fun tokenizeHexLine(line: String): List<String> {
+        val spaced = line.split(Regex("\\s+"))
+            .filter { it.matches(Regex("[0-9A-Fa-f]{2,8}")) }
+        if (spaced.size > 1) return spaced
+
+        val compact = line.filterNot(Char::isWhitespace)
+        if (!compact.matches(Regex("[0-9A-Fa-f]+"))) return spaced
+
+        return when {
+            compact.length >= 9 && compact.length % 2 == 1 -> {
+                listOf(compact.take(3)) + compact.drop(3).chunked(2)
+            }
+            compact.length >= 14 && compact.length % 2 == 0 && looksLike29BitCanId(compact.take(8)) -> {
+                listOf(compact.take(8)) + compact.drop(8).chunked(2)
+            }
+            compact.length % 2 == 0 -> compact.chunked(2)
+            else -> spaced
+        }
+    }
+
+    private fun looksLike29BitCanId(value: String): Boolean =
+        value.startsWith("18", ignoreCase = true) || value.startsWith("19", ignoreCase = true)
 
 }
 
