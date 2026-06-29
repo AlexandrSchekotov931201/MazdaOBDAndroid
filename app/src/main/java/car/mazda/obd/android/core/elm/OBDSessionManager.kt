@@ -25,6 +25,8 @@ class OBDSessionManager(
 
     private val _sessionState = MutableStateFlow<OBDSessionState>(OBDSessionState.Idle)
     val sessionState: StateFlow<OBDSessionState> = _sessionState
+    private val _capabilities = MutableStateFlow(VehicleCapabilities.Unknown)
+    val capabilities: StateFlow<VehicleCapabilities> = _capabilities
 
     private val reconnectLock = Any()
     private var reconnectJob: Job? = null
@@ -38,6 +40,9 @@ class OBDSessionManager(
             AppLogger.log("Initializing ECU")
             _sessionState.value = OBDSessionState.InitializingEcu
             client.initializingEcu()
+
+            AppLogger.log("Discovering standard OBD-II capabilities")
+            _capabilities.value = client.discoverCapabilities()
 
             AppLogger.log("OBD session ready")
             _sessionState.value = OBDSessionState.Ready
@@ -58,6 +63,7 @@ class OBDSessionManager(
             }
         }
         client.release()
+        _capabilities.value = VehicleCapabilities.Unknown
         _sessionState.value = OBDSessionState.Idle
     }
 

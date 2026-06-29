@@ -21,10 +21,6 @@ sealed class ElmCommand(val value: String) {
             LineFeedsOff,
             HeadersOn,
             AutoProtocol,
-            SetHeader(CanIds.ENGINE_ECU_REQUEST),
-            Identify,
-            DeviceDescription,
-            ReadVoltage,
         )
     }
 }

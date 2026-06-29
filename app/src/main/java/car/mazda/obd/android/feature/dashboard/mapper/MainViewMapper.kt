@@ -105,7 +105,7 @@ class MainViewMapper {
 
     private fun mapEngineRpm(dataList: List<OBDData>): Int? {
         val rpmData = dataList.firstOrNull {
-            it.canId.isEngineEcuResponse() && it.pid == ENGINE_RPM_PID
+            it.canId.isEngineEcuResponse() && it.pid.equals(ENGINE_RPM_PID, ignoreCase = true)
         } ?: run {
             AppLogger.handledError("Handled RPM response without engine RPM data: pid=010C parsed=${dataList.describe()}")
             return null
@@ -123,7 +123,7 @@ class MainViewMapper {
 
     private fun mapTemperature(dataList: List<OBDData>, pid: String): Int? {
         val tempData = dataList.firstOrNull {
-            it.canId.isEngineEcuResponse() && it.pid == pid
+            it.canId.isEngineEcuResponse() && it.pid.equals(pid, ignoreCase = true)
         } ?: return null
 
         return try {
@@ -134,7 +134,10 @@ class MainViewMapper {
     }
 
     private fun String.isEngineEcuResponse(): Boolean =
-        this == CanIds.ENGINE_ECU_RESPONSE || matches(Regex("7E[8-F]", RegexOption.IGNORE_CASE))
+        isBlank() ||
+                equals(CanIds.ENGINE_ECU_RESPONSE, ignoreCase = true) ||
+                matches(Regex("7E[8-F]", RegexOption.IGNORE_CASE)) ||
+                matches(Regex("18DAF1[0-9A-F]", RegexOption.IGNORE_CASE))
 
     private fun String.compactRaw(): String =
         lineSequence()

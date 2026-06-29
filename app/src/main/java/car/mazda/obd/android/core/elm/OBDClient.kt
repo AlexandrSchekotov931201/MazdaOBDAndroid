@@ -45,14 +45,11 @@ class OBDClient(
         private const val READ_TIMEOUT_MS = 2_000
         private const val NETWORK_REQUEST_TIMEOUT_MS = 3_000L
         private const val PROD_FLAVOR = "prod"
-        private const val CAN_ERROR_SNAPSHOT_INTERVAL_MS = 5_000L
     }
 
     private var socket: Socket? = null
     private var reader: BufferedReader? = null
     private var writer: OutputStreamWriter? = null
-    private var protocolSnapshotCaptured = false
-    private var lastCanErrorSnapshotAtMs = 0L
 
     private val dataMapper = OBDDataMapper()
 
@@ -199,22 +196,40 @@ class OBDClient(
         return unlockedRequestObd(request)
     }
 
+    suspend fun discoverCapabilities(): VehicleCapabilities = mutex.withLock {
+        val supported = mutableSetOf<Int>()
+        var basePid = 0x00
+        var receivedAnyData = false
+
+        while (basePid <= 0xE0) {
+            val response = unlockedRequestObd(OBDRequest.SupportedPids(basePid))
+            if (response !is OBDResponse.Data) break
+
+            val expectedPid = basePid.toString(16).uppercase().padStart(2, '0')
+            val matchingResponses = response.data.filter {
+                it.pid.equals(expectedPid, ignoreCase = true)
+            }
+            if (matchingResponses.isEmpty()) break
+
+            receivedAnyData = true
+            val range = SupportedPidDecoder.decode(basePid, matchingResponses)
+            supported += range
+            val nextRangePid = basePid + 0x20
+            if (nextRangePid !in range) break
+            basePid = nextRangePid
+        }
+
+        VehicleCapabilities(
+            discoveryComplete = receivedAnyData,
+            supportedPids = supported,
+        )
+    }
+
     private fun unlockedRequestElm(cmd: ElmCommand): OBDResponse =
         unlockedRequest(cmd.value)
 
     private fun unlockedRequestObd(req: OBDRequest): OBDResponse {
-        val response = unlockedRequest(req.value)
-        if (!protocolSnapshotCaptured && response is OBDResponse.Data) {
-            protocolSnapshotCaptured = true
-            captureAdapterSnapshot()
-        } else if (response is OBDResponse.NoData.CanError) {
-            val now = System.currentTimeMillis()
-            if (now - lastCanErrorSnapshotAtMs >= CAN_ERROR_SNAPSHOT_INTERVAL_MS) {
-                lastCanErrorSnapshotAtMs = now
-                captureAdapterSnapshot()
-            }
-        }
-        return response
+        return unlockedRequest(req.value)
     }
 
     private fun unlockedRequest(request: String): OBDResponse {
@@ -314,8 +329,6 @@ class OBDClient(
         writer = null
         reader = null
         socket = null
-        protocolSnapshotCaptured = false
-        lastCanErrorSnapshotAtMs = 0L
     }
 
     private fun logConnectionFailure(t: Throwable) {
@@ -356,18 +369,4 @@ class OBDClient(
         is OBDResponse.NoData.Error -> "Response parsing failed"
     }
 
-    private fun captureAdapterSnapshot() {
-        AppLogger.event(layer = Layer.Elm, operation = "adapter-snapshot", message = "Capturing read-only adapter diagnostics")
-        listOf(
-            ElmCommand.DescribeProtocol,
-            ElmCommand.DescribeProtocolNumber,
-            ElmCommand.ReadVoltage,
-            ElmCommand.CanStatus,
-        ).forEach { command ->
-            runCatching { unlockedRequestElm(command) }
-                .onFailure { error ->
-                    AppLogger.event(Level.Error, Layer.Elm, operation = "adapter-snapshot", message = "Could not read ${command.value}", throwable = error)
-                }
-        }
-    }
 }

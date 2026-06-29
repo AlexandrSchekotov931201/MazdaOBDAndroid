@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -18,37 +17,74 @@ class OBDDataReader(
     private val client: OBDClient,
     private val sessionManager: OBDSessionManager,
 ) {
-    fun rpmFlow(periodMs: Long): Flow<OBDResponse> =
-        requestFlow(periodMs, OBDRequest.EngineRpm)
+    data class PollResult(
+        val request: OBDRequest,
+        val response: OBDResponse,
+    )
 
-    fun coolantTemperatureFlow(periodMs: Long): Flow<OBDResponse> =
-        requestFlow(periodMs, OBDRequest.EngineCoolantTemperature)
+    fun telemetryFlow(
+        rpmPeriodMs: Long,
+        coolantPeriodMs: Long,
+    ): Flow<PollResult> {
+        require(rpmPeriodMs > 0)
+        require(coolantPeriodMs > 0)
 
-    private fun requestFlow(periodMs: Long, request: OBDRequest): Flow<OBDResponse> =
-        sessionManager.sessionState
-            .flatMapLatest { state ->
-                if (state is OBDSessionState.Ready) {
-                    tickerFlow(periodMs).map { safeRequest(request) }
-                } else {
-                    emptyFlow()
+        return sessionManager.sessionState.flatMapLatest { state ->
+            if (state is OBDSessionState.Ready) {
+                pollingFlow(rpmPeriodMs, coolantPeriodMs)
+            } else {
+                emptyFlow()
+            }
+        }
+    }
+
+    private fun pollingFlow(rpmPeriodMs: Long, coolantPeriodMs: Long): Flow<PollResult> = flow {
+        var nextRpmAtMs = monotonicTimeMs()
+        var nextCoolantAtMs = nextRpmAtMs
+
+        while (currentCoroutineContext().isActive) {
+            val capabilities = sessionManager.capabilities.value
+            val nowMs = monotonicTimeMs()
+
+            if (nowMs < nextRpmAtMs) delay(nextRpmAtMs - nowMs)
+
+            if (capabilities.supports(ENGINE_RPM_PID)) {
+                emit(PollResult(OBDRequest.EngineRpm, safeRequest(OBDRequest.EngineRpm)))
+            }
+            nextRpmAtMs += rpmPeriodMs
+
+            val afterRpmMs = monotonicTimeMs()
+            if (afterRpmMs >= nextCoolantAtMs) {
+                if (capabilities.supports(COOLANT_TEMPERATURE_PID)) {
+                    emit(
+                        PollResult(
+                            OBDRequest.EngineCoolantTemperature,
+                            safeRequest(OBDRequest.EngineCoolantTemperature),
+                        ),
+                    )
                 }
+                nextCoolantAtMs = afterRpmMs + coolantPeriodMs
             }
 
-    private suspend fun safeRequest(request: OBDRequest): OBDResponse {
-        return try {
-            client.requestObd(request)
-        } catch (t: Throwable) {
-            if (t is CancellationException) throw t
-            sessionManager.requestReconnect(t)
-            OBDResponse.NoData.Error("", t)
+            val completedAtMs = monotonicTimeMs()
+            if (nextRpmAtMs <= completedAtMs) {
+                nextRpmAtMs = completedAtMs + rpmPeriodMs
+            }
         }
     }
 
-    private fun tickerFlow(periodMs: Long): Flow<Unit> = flow {
-        while (currentCoroutineContext().isActive) {
-            emit(Unit)
-            delay(periodMs)
-        }
+    private suspend fun safeRequest(request: OBDRequest): OBDResponse = try {
+        client.requestObd(request)
+    } catch (t: Throwable) {
+        if (t is CancellationException) throw t
+        sessionManager.requestReconnect(t)
+        OBDResponse.NoData.Error("", t)
+    }
+
+    private fun monotonicTimeMs(): Long = System.nanoTime() / 1_000_000
+
+    private companion object {
+        const val COOLANT_TEMPERATURE_PID = 0x05
+        const val ENGINE_RPM_PID = 0x0C
     }
 }
-

@@ -21,6 +21,7 @@ import car.mazda.obd.android.core.elm.OBDClient
 import car.mazda.obd.android.core.elm.OBDDataReader
 import car.mazda.obd.android.core.elm.OBDSessionManager
 import car.mazda.obd.android.core.elm.OBDSessionState
+import car.mazda.obd.android.core.elm.entity.OBDRequest
 import car.mazda.obd.android.core.logs.AppLogger
 import car.mazda.obd.android.core.sound.SoundPatterns
 import car.mazda.obd.android.core.sound.SoundPlayer
@@ -164,8 +165,7 @@ class ObdMonitorService : Service() {
 
         monitorJob = scope.launch {
             launch { observeSessionState() }
-            launch { observeEngineRpmState() }
-            launch { observeCoolantTemperatureState() }
+            launch { observeTelemetryState() }
             launch { observeTripState() }
             launch { keepInitialSessionConnecting() }
         }
@@ -249,37 +249,44 @@ class ObdMonitorService : Service() {
         }
     }
 
-    private suspend fun observeEngineRpmState() {
-        dataReader.rpmFlow(periodMs = RPM_POLL_PERIOD_MS)
-            .map(viewMapper::mapEngineRpm)
-            .catch { t -> AppLogger.log("rpmFlow error: ${t.message}") }
-            .collect { sample ->
-                latestRpm = sample.displayRpm()
-                ObdMonitorStateStore.update { it.copy(rpm = latestRpm) }
-                tripStateManager.onRpmSample(sample)
-                tripSummaryTracker.onTripStateChanged(tripStateManager.tripState.value)
-                if (sample is EngineRpmSample.Value) {
-                    tripSummaryTracker.onRpmChanged(sample.rpm)
+    private suspend fun observeTelemetryState() {
+        dataReader.telemetryFlow(
+            rpmPeriodMs = RPM_POLL_PERIOD_MS,
+            coolantPeriodMs = COOLANT_POLL_PERIOD_MS,
+        )
+            .catch { t -> AppLogger.log("telemetryFlow error: ${t.message}") }
+            .collect { result ->
+                when (result.request) {
+                    OBDRequest.EngineRpm -> handleEngineRpm(viewMapper.mapEngineRpm(result.response))
+                    OBDRequest.EngineCoolantTemperature -> {
+                        handleCoolantTemperature(viewMapper.mapEngineCoolantTemperature(result.response))
+                    }
+                    is OBDRequest.SupportedPids -> Unit
                 }
-                checkWarmupWarning()
             }
     }
 
-    private suspend fun observeCoolantTemperatureState() {
-        dataReader.coolantTemperatureFlow(periodMs = COOLANT_POLL_PERIOD_MS)
-            .map(viewMapper::mapEngineCoolantTemperature)
-            .catch { t -> AppLogger.log("coolantTemperatureFlow error: ${t.message}") }
-            .collect { sample ->
-                latestCoolantTemp = sample.displayTemperature()
-                ObdMonitorStateStore.update {
-                    it.copy(
-                        coolantTemp = latestCoolantTemp,
-                        warmupText = sample.warmupText(),
-                    )
-                }
-                tripSummaryTracker.onEngineTemperatureChanged(latestCoolantTemp)
-                checkWarmupWarning()
-            }
+    private suspend fun handleEngineRpm(sample: EngineRpmSample) {
+        latestRpm = sample.displayRpm()
+        ObdMonitorStateStore.update { it.copy(rpm = latestRpm) }
+        tripStateManager.onRpmSample(sample)
+        tripSummaryTracker.onTripStateChanged(tripStateManager.tripState.value)
+        if (sample is EngineRpmSample.Value) {
+            tripSummaryTracker.onRpmChanged(sample.rpm)
+        }
+        checkWarmupWarning()
+    }
+
+    private suspend fun handleCoolantTemperature(sample: EngineTemperatureSample) {
+        latestCoolantTemp = sample.displayTemperature()
+        ObdMonitorStateStore.update {
+            it.copy(
+                coolantTemp = latestCoolantTemp,
+                warmupText = sample.warmupText(),
+            )
+        }
+        tripSummaryTracker.onEngineTemperatureChanged(latestCoolantTemp)
+        checkWarmupWarning()
     }
 
     private suspend fun checkWarmupWarning() {
