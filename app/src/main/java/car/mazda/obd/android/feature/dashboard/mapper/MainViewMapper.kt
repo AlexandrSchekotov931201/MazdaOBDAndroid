@@ -1,6 +1,5 @@
 package car.mazda.obd.android.feature.dashboard.mapper
 
-import car.mazda.obd.android.core.elm.entity.CanIds
 import car.mazda.obd.android.core.elm.entity.OBDData
 import car.mazda.obd.android.core.elm.entity.OBDResponse
 import car.mazda.obd.android.core.logs.AppLogger
@@ -135,7 +134,6 @@ class MainViewMapper {
 
     private fun String.isEngineEcuResponse(): Boolean =
         isBlank() ||
-                equals(CanIds.ENGINE_ECU_RESPONSE, ignoreCase = true) ||
                 matches(Regex("7E[8-F]", RegexOption.IGNORE_CASE)) ||
                 matches(Regex("18DAF1[0-9A-F]", RegexOption.IGNORE_CASE))
 
