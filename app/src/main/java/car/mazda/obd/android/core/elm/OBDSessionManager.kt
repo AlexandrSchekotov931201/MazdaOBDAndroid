@@ -2,6 +2,7 @@ package car.mazda.obd.android.core.elm
 
 import car.mazda.obd.android.core.elm.exception.AdapterUnreachableException
 import car.mazda.obd.android.core.elm.exception.ElmPromptTimeoutException
+import car.mazda.obd.android.core.elm.exception.ElmCommandInterruptedException
 import car.mazda.obd.android.core.elm.exception.LostConnectionException
 import car.mazda.obd.android.core.elm.exception.NetworkUnavailableException
 import car.mazda.obd.android.core.elm.exception.ResponseDesynchronizationException
@@ -154,6 +155,7 @@ class OBDSessionManager(
         this is LostConnectionException ||
                 this is NetworkUnavailableException ||
                 this is AdapterUnreachableException ||
+                this is ElmCommandInterruptedException ||
                 this is ElmPromptTimeoutException ||
                 this is ResponseDesynchronizationException
 }

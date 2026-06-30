@@ -31,6 +31,11 @@ class ElmPromptTimeoutException(
     cause = cause,
 )
 
+/** The ELM adapter interrupted the current command before producing a result. */
+class ElmCommandInterruptedException(
+    message: String = "ELM command was interrupted",
+) : OBDException(message)
+
 /** Connection was lost while reading, writing, or when the remote socket closed. */
 class LostConnectionException(
     message: String = "Lost connection",

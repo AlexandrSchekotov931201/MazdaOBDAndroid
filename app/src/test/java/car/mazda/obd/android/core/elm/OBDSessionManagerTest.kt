@@ -38,7 +38,7 @@ class OBDSessionManagerTest {
 
     @Test
     fun initialConnectionStopsRetryingAfterFatalProtocolError() = runBlocking {
-        val transport = InitialConnectionTransport(initResponses = listOf("STOPPED\r>"))
+        val transport = InitialConnectionTransport(initResponses = listOf("GARBAGE\r>"))
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val manager = OBDSessionManager(
             client = OBDClient(transport),
@@ -52,6 +52,29 @@ class OBDSessionManagerTest {
 
             assertEquals(1, transport.connectAttempts)
             assertTrue(manager.sessionState.value is OBDSessionState.Error)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun initialConnectionRetriesAfterStoppedResponse() = runBlocking {
+        val transport = InitialConnectionTransport(
+            initResponses = listOf("STOPPED\r>") + InitialConnectionTransport.defaultInitResponses,
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val manager = OBDSessionManager(
+            client = OBDClient(transport),
+            scope = scope,
+            requiredPids = emptySet(),
+            reconnectDelayMs = 0,
+        )
+
+        try {
+            manager.connectUntilReady()
+
+            assertEquals(2, transport.connectAttempts)
+            assertTrue(manager.sessionState.value is OBDSessionState.Ready)
         } finally {
             scope.cancel()
         }
@@ -100,7 +123,7 @@ class OBDSessionManagerTest {
         override fun disconnect() = Unit
 
         companion object {
-            private val defaultInitResponses = listOf(
+            val defaultInitResponses = listOf(
                 "ELM327 v1.5\r>",
                 "OK\r>",
                 "OK\r>",

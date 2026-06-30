@@ -4,7 +4,7 @@ import car.mazda.obd.android.core.elm.entity.OBDRequest
 import car.mazda.obd.android.core.elm.entity.OBDResponse
 import car.mazda.obd.android.core.elm.entity.StandardPid
 import car.mazda.obd.android.core.elm.exception.ElmPromptTimeoutException
-import car.mazda.obd.android.core.elm.exception.ProtocolException
+import car.mazda.obd.android.core.elm.exception.ElmCommandInterruptedException
 import car.mazda.obd.android.core.elm.exception.ResponseDesynchronizationException
 import car.mazda.obd.android.core.elm.transport.ElmTransport
 import car.mazda.obd.android.core.elm.transport.ElmTransportReadTimeoutException
@@ -83,14 +83,14 @@ class OBDClientTest {
     }
 
     @Test
-    fun rejectsInvalidAdapterResetResponse() = runBlocking {
+    fun reportsStoppedAdapterCommandAsTemporaryInterruption() = runBlocking {
         val transport = FakeElmTransport("STOPPED\r>")
         val client = OBDClient(transport)
         client.connect()
 
         val error = runCatching { client.initializingEcu() }.exceptionOrNull()
 
-        assertTrue(error is ProtocolException)
+        assertTrue(error is ElmCommandInterruptedException)
         assertEquals(listOf("ATZ"), transport.commands)
         assertEquals(1, transport.disconnectCount)
     }

@@ -6,6 +6,7 @@ import car.mazda.obd.android.core.elm.entity.OBDRequest
 import car.mazda.obd.android.core.elm.entity.OBDResponse
 import car.mazda.obd.android.core.elm.entity.SupportedPidRange
 import car.mazda.obd.android.core.elm.exception.ElmPromptTimeoutException
+import car.mazda.obd.android.core.elm.exception.ElmCommandInterruptedException
 import car.mazda.obd.android.core.elm.exception.ProtocolException
 import car.mazda.obd.android.core.elm.exception.ResponseDesynchronizationException
 import car.mazda.obd.android.core.elm.mapper.OBDDataMapper
@@ -204,6 +205,10 @@ class OBDClient(
             exchangeId = exchangeId,
             raw = raw,
         )
+
+        if (raw.contains("STOPPED", ignoreCase = true)) {
+            throw ElmCommandInterruptedException()
+        }
 
         if (isElmCommand) {
             AppLogger.event(
