@@ -3,7 +3,10 @@ package car.mazda.obd.android.core.elm
 import car.mazda.obd.android.core.elm.entity.OBDRequest
 import car.mazda.obd.android.core.elm.entity.OBDResponse
 import car.mazda.obd.android.core.elm.entity.StandardPid
+import car.mazda.obd.android.core.elm.exception.ElmPromptTimeoutException
+import car.mazda.obd.android.core.elm.exception.ProtocolException
 import car.mazda.obd.android.core.elm.transport.ElmTransport
+import car.mazda.obd.android.core.elm.transport.ElmTransportReadTimeoutException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -45,10 +48,78 @@ class OBDClientTest {
         assertTrue(capabilities.hasDiscoveryFor(0x0C))
     }
 
+    @Test
+    fun disconnectsTransportBeforePropagatingPromptTimeout() = runBlocking {
+        val transport = TimeoutElmTransport()
+        val client = OBDClient(transport)
+        client.connect()
+
+        val error = runCatching {
+            client.requestObd(OBDRequest.CurrentData(StandardPid.ENGINE_RPM))
+        }.exceptionOrNull()
+
+        assertTrue(error is ElmPromptTimeoutException)
+        assertEquals(1, transport.disconnectCount)
+        assertTrue(!transport.connected)
+    }
+
+    @Test
+    fun disconnectsAfterSecondMismatchedResponse() = runBlocking {
+        val transport = FakeElmTransport(
+            "7E8 04 41 0C 1A F8\r>",
+            "7E8 04 41 0C 1A F9\r>",
+        )
+        val client = OBDClient(transport)
+        client.connect()
+
+        val error = runCatching {
+            client.requestObd(OBDRequest.CurrentData(StandardPid.ENGINE_COOLANT_TEMPERATURE))
+        }.exceptionOrNull()
+
+        assertTrue(error is ProtocolException)
+        assertEquals(listOf("0105", "0105"), transport.commands)
+        assertEquals(1, transport.disconnectCount)
+    }
+
+    @Test
+    fun rejectsInvalidAdapterResetResponse() = runBlocking {
+        val transport = FakeElmTransport("STOPPED\r>")
+        val client = OBDClient(transport)
+        client.connect()
+
+        val error = runCatching { client.initializingEcu() }.exceptionOrNull()
+
+        assertTrue(error is ProtocolException)
+        assertEquals(listOf("ATZ"), transport.commands)
+        assertEquals(1, transport.disconnectCount)
+    }
+
+    @Test
+    fun acceptsExpectedInitializationResponses() = runBlocking {
+        val transport = FakeElmTransport(
+            "OBDII v1.5\r>",
+            "OK\r>",
+            "OK\r>",
+            "OK\r>",
+            "OK\r>",
+            "OK\r>",
+            "OK\r>",
+        )
+        val client = OBDClient(transport)
+        client.connect()
+
+        client.initializingEcu()
+
+        assertEquals(7, transport.commands.size)
+        assertEquals(0, transport.disconnectCount)
+    }
+
     private class FakeElmTransport(vararg responses: String) : ElmTransport {
         private val responses = ArrayDeque(responses.toList())
         val commands = mutableListOf<String>()
         val timeouts = mutableListOf<Int>()
+        var disconnectCount = 0
+            private set
         private var connected = false
 
         override suspend fun connect() {
@@ -63,6 +134,31 @@ class OBDClientTest {
         }
 
         override fun disconnect() {
+            if (connected) disconnectCount++
+            connected = false
+        }
+    }
+
+    private class TimeoutElmTransport : ElmTransport {
+        var connected = false
+            private set
+        var disconnectCount = 0
+            private set
+
+        override suspend fun connect() {
+            connected = true
+        }
+
+        override suspend fun exchange(command: String, readTimeoutMs: Int): String {
+            check(connected)
+            throw ElmTransportReadTimeoutException(
+                partialRaw = "7E8 04 41 0C 1A F8\r",
+                cause = java.net.SocketTimeoutException("test timeout"),
+            )
+        }
+
+        override fun disconnect() {
+            if (connected) disconnectCount++
             connected = false
         }
     }

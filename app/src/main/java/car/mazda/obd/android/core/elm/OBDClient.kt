@@ -14,6 +14,7 @@ import car.mazda.obd.android.core.logs.AppLogger
 import car.mazda.obd.android.core.logs.AppLogger.Direction
 import car.mazda.obd.android.core.logs.AppLogger.Layer
 import car.mazda.obd.android.core.logs.AppLogger.Level
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -46,8 +47,13 @@ class OBDClient(
     }
 
     suspend fun initializingEcu() = mutex.withLock {
-        for (cmd in ElmCommand.defaultInitSequence) {
-            unlockedRequestElm(cmd)
+        try {
+            for (cmd in ElmCommand.defaultInitSequence) {
+                unlockedRequestElm(cmd)
+            }
+        } catch (t: Throwable) {
+            invalidateTransportOnFailure(t)
+            throw t
         }
     }
 
@@ -55,8 +61,64 @@ class OBDClient(
         request: OBDRequest,
         preferredEcu: String? = null,
     ): OBDResponse = mutex.withLock {
+        try {
+            unlockedRequestObdWithRetry(request, preferredEcu)
+        } catch (t: Throwable) {
+            invalidateTransportOnFailure(t)
+            throw t
+        }
+    }
+
+    suspend fun discoverCapabilities(requiredPids: Set<Int>): VehicleCapabilities = mutex.withLock {
+        try {
+            val discoveredRanges = mutableSetOf<SupportedPidRange>()
+            val supportedByEcu = mutableMapOf<String, MutableSet<Int>>()
+
+            val requiredRanges = requiredPids.map(SupportedPidRange::containing)
+                .distinct()
+                .sortedBy { it.basePid }
+            for (range in requiredRanges) {
+                val response = unlockedRequestObdWithRetry(OBDRequest.SupportedPids(range))
+                if (response !is OBDResponse.Data) continue
+
+                SupportedPidBitmapDecoder.decodeByEcu(range, response.data).forEach { (ecu, pids) ->
+                    supportedByEcu.getOrPut(ecu) { mutableSetOf() } += pids
+                }
+                discoveredRanges += range
+            }
+
+            VehicleCapabilities(
+                discoveredRanges = discoveredRanges,
+                supportedPidsByEcu = supportedByEcu.mapValues { it.value.toSet() },
+            )
+        } catch (t: Throwable) {
+            invalidateTransportOnFailure(t)
+            throw t
+        }
+    }
+
+    private suspend fun unlockedRequestElm(cmd: ElmCommand): OBDResponse {
+        val response = unlockedRequest(cmd.value)
+        if (!cmd.accepts(response)) {
+            val raw = (response as? OBDResponse.NoData)?.raw.orEmpty()
+            AppLogger.event(
+                level = Level.Error,
+                layer = Layer.Elm,
+                operation = cmd.value.operationName(),
+                message = "ELM response did not match command",
+                raw = raw,
+            )
+            throw ProtocolException("Unexpected response to ${cmd.value}: ${raw.visibleForError()}")
+        }
+        return response
+    }
+
+    private suspend fun unlockedRequestObdWithRetry(
+        request: OBDRequest,
+        preferredEcu: String? = null,
+    ): OBDResponse {
         val firstResponse = unlockedRequestObd(request, preferredEcu)
-        if (firstResponse !is OBDResponse.NoData.Mismatched) return@withLock firstResponse
+        if (firstResponse !is OBDResponse.NoData.Mismatched) return firstResponse
 
         AppLogger.event(
             level = Level.HandledError,
@@ -65,34 +127,20 @@ class OBDClient(
             message = "Discarding stale/mismatched response and retrying request once",
             raw = firstResponse.raw,
         )
-        unlockedRequestObd(request, preferredEcu)
-    }
+        val retryResponse = unlockedRequestObd(request, preferredEcu)
+        if (retryResponse !is OBDResponse.NoData.Mismatched) return retryResponse
 
-    suspend fun discoverCapabilities(requiredPids: Set<Int>): VehicleCapabilities = mutex.withLock {
-        val discoveredRanges = mutableSetOf<SupportedPidRange>()
-        val supportedByEcu = mutableMapOf<String, MutableSet<Int>>()
-
-        val requiredRanges = requiredPids.map(SupportedPidRange::containing)
-            .distinct()
-            .sortedBy { it.basePid }
-        for (range in requiredRanges) {
-            val response = unlockedRequestObd(OBDRequest.SupportedPids(range))
-            if (response !is OBDResponse.Data) continue
-
-            SupportedPidBitmapDecoder.decodeByEcu(range, response.data).forEach { (ecu, pids) ->
-                supportedByEcu.getOrPut(ecu) { mutableSetOf() } += pids
-            }
-            discoveredRanges += range
-        }
-
-        VehicleCapabilities(
-            discoveredRanges = discoveredRanges,
-            supportedPidsByEcu = supportedByEcu.mapValues { it.value.toSet() },
+        AppLogger.event(
+            level = Level.Error,
+            layer = Layer.Parser,
+            operation = request.value.operationName(),
+            message = "Repeated mismatched response; invalidating ELM transport",
+            raw = retryResponse.raw,
+        )
+        throw ProtocolException(
+            "Repeated response mismatch for ${request.value}: ${retryResponse.actualSources.joinToString()}",
         )
     }
-
-    private suspend fun unlockedRequestElm(cmd: ElmCommand): OBDResponse =
-        unlockedRequest(cmd.value)
 
     private suspend fun unlockedRequestObd(
         req: OBDRequest,
@@ -180,6 +228,50 @@ class OBDClient(
         transport.disconnect()
         protocolEstablished = false
     }
+
+    private fun invalidateTransportOnFailure(t: Throwable) {
+        if (t is CancellationException) return
+        AppLogger.event(
+            level = Level.HandledError,
+            layer = Layer.Network,
+            operation = "transport-reset",
+            message = "Invalidating ELM transport after ${t::class.simpleName}",
+        )
+        unlockedRelease()
+    }
+
+    private fun ElmCommand.accepts(response: OBDResponse): Boolean {
+        if (response is OBDResponse.Data) return false
+        val raw = (response as? OBDResponse.NoData)?.raw?.uppercase().orEmpty()
+        if (
+            raw.contains("STOPPED") ||
+            raw.contains("CAN ERROR") ||
+            raw.contains("NO DATA") ||
+            raw.contains("?")
+        ) {
+            return false
+        }
+
+        return when (this) {
+            ElmCommand.Reset,
+            ElmCommand.Identify -> raw.contains("ELM") || raw.contains("OBDII")
+            ElmCommand.EchoOff,
+            ElmCommand.LineFeedsOff,
+            ElmCommand.SpacesOn,
+            ElmCommand.HeadersOn,
+            ElmCommand.AdaptiveTiming,
+            ElmCommand.AutoProtocol,
+            is ElmCommand.SetHeader -> raw.contains("OK")
+            ElmCommand.DeviceDescription -> raw.removeSuffix(">").trim().length > 2 && !raw.contains("OK")
+            ElmCommand.ReadVoltage -> Regex("\\b\\d{1,2}(?:\\.\\d+)?V\\b").containsMatchIn(raw)
+            ElmCommand.DescribeProtocol -> raw.contains("ISO") || raw.contains("CAN") || raw.contains("SAE")
+            ElmCommand.DescribeProtocolNumber -> Regex("(?:^|\\s)A?[0-9A-C](?:\\s|>|$)").containsMatchIn(raw)
+            ElmCommand.CanStatus -> Regex("T:[0-9A-F]{2}\\s+R:[0-9A-F]{2}").containsMatchIn(raw)
+        }
+    }
+
+    private fun String.visibleForError(): String =
+        replace("\r", "\\r").replace("\n", "\\n").take(200)
 
     private fun logConnectionFailure(t: Throwable) {
         AppLogger.event(Level.Error, Layer.Network, operation = "connect", message = "Connection failed", throwable = t)
