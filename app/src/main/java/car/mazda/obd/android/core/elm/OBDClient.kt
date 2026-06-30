@@ -79,7 +79,7 @@ class OBDClient(
             val response = unlockedRequestObd(OBDRequest.SupportedPids(range))
             if (response !is OBDResponse.Data) continue
 
-            SupportedPidDecoder.decodeByEcu(range, response.data).forEach { (ecu, pids) ->
+            SupportedPidBitmapDecoder.decodeByEcu(range, response.data).forEach { (ecu, pids) ->
                 supportedByEcu.getOrPut(ecu) { mutableSetOf() } += pids
             }
             discoveredRanges += range

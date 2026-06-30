@@ -26,7 +26,7 @@ data class VehicleCapabilities(
     }
 }
 
-internal object SupportedPidDecoder {
+internal object SupportedPidBitmapDecoder {
     fun decodeByEcu(range: SupportedPidRange, responses: List<OBDData>): Map<String, Set<Int>> =
         responses.groupBy { it.canId.uppercase() }
             .mapValues { (_, ecuResponses) ->

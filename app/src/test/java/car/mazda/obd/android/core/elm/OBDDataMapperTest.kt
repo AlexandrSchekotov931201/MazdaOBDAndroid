@@ -4,6 +4,7 @@ import car.mazda.obd.android.core.elm.entity.OBDData
 import car.mazda.obd.android.core.elm.entity.OBDRequest
 import car.mazda.obd.android.core.elm.entity.OBDResponse
 import car.mazda.obd.android.core.elm.entity.SupportedPidRange
+import car.mazda.obd.android.core.elm.entity.StandardPid
 import car.mazda.obd.android.core.elm.mapper.OBDDataMapper
 import car.mazda.obd.android.core.telemetry.StandardPidCatalog
 import car.mazda.obd.android.feature.monitor.TelemetryResponseMapper
@@ -51,8 +52,8 @@ class OBDDataMapperTest {
 
     @Test
     fun decodesSupportedPidBitmapAndBuildsRangeRequest() {
-        val supportedByEcu = SupportedPidDecoder.decodeByEcu(
-            range = SupportedPidRange.Pids01To20,
+        val supportedByEcu = SupportedPidBitmapDecoder.decodeByEcu(
+            range = SupportedPidRange.PIDS_01_TO_20,
             responses = listOf(
                 OBDData("7E8", "00", listOf("08", "10", "00", "01")),
                 OBDData("7E9", "00", listOf("08", "00", "00", "00")),
@@ -61,10 +62,11 @@ class OBDDataMapperTest {
 
         assertEquals(setOf(0x05, 0x0C, 0x20), supportedByEcu.getValue("7E8"))
         assertEquals(setOf(0x05), supportedByEcu.getValue("7E9"))
-        assertEquals("0120", OBDRequest.SupportedPids(SupportedPidRange.Pids21To40).value)
-        assertEquals(0x0C, OBDRequest.EngineRpm.pid)
-        assertEquals("0C", OBDRequest.EngineRpm.responsePidHex)
-        val capabilities = VehicleCapabilities(setOf(SupportedPidRange.Pids01To20), supportedByEcu)
+        assertEquals("0120", OBDRequest.SupportedPids(SupportedPidRange.PIDS_21_TO_40).value)
+        val rpmRequest = OBDRequest.CurrentData(StandardPid.ENGINE_RPM)
+        assertEquals(0x0C, rpmRequest.pidCode)
+        assertEquals("0C", rpmRequest.responsePidHex)
+        val capabilities = VehicleCapabilities(setOf(SupportedPidRange.PIDS_01_TO_20), supportedByEcu)
         assertTrue(capabilities.supports(0x0C))
         assertFalse(capabilities.supports(0x0D))
         assertTrue(capabilities.supports(0x21))
@@ -84,7 +86,7 @@ class OBDDataMapperTest {
     fun rejectsStalePidAndSelectsPreferredEcu() {
         val stale = OBDResponseCorrelator.correlate(
             response = OBDResponse.Data(listOf(OBDData("7E8", "0C", listOf("1A", "F8")))),
-            request = OBDRequest.EngineCoolantTemperature,
+            request = OBDRequest.CurrentData(StandardPid.ENGINE_COOLANT_TEMPERATURE),
             preferredEcu = "7E8",
         )
         val selected = OBDResponseCorrelator.correlate(
@@ -94,7 +96,7 @@ class OBDDataMapperTest {
                     OBDData("7E9", "0C", listOf("10", "00")),
                 ),
             ),
-            request = OBDRequest.EngineRpm,
+            request = OBDRequest.CurrentData(StandardPid.ENGINE_RPM),
             preferredEcu = "7E9",
         ) as OBDResponse.Data
 

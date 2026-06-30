@@ -1,18 +1,23 @@
 package car.mazda.obd.android.core.elm.entity
 
 enum class OBDService(val requestCode: Int) {
-    CurrentData(0x01),
+    CURRENT_DATA(0x01),
+}
+
+enum class StandardPid(val code: Int) {
+    ENGINE_COOLANT_TEMPERATURE(0x05),
+    ENGINE_RPM(0x0C),
 }
 
 enum class SupportedPidRange(val basePid: Int) {
-    Pids01To20(0x00),
-    Pids21To40(0x20),
-    Pids41To60(0x40),
-    Pids61To80(0x60),
-    Pids81ToA0(0x80),
-    PidsA1ToC0(0xA0),
-    PidsC1ToE0(0xC0),
-    PidsE1ToFF(0xE0),
+    PIDS_01_TO_20(0x00),
+    PIDS_21_TO_40(0x20),
+    PIDS_41_TO_60(0x40),
+    PIDS_61_TO_80(0x60),
+    PIDS_81_TO_A0(0x80),
+    PIDS_A1_TO_C0(0xA0),
+    PIDS_C1_TO_E0(0xC0),
+    PIDS_E1_TO_FF(0xE0),
     ;
 
     companion object {
@@ -24,18 +29,20 @@ enum class SupportedPidRange(val basePid: Int) {
 
 sealed class OBDRequest(
     val service: OBDService,
-    val pid: Int,
+    val pidCode: Int,
 ) {
-    val value: String = service.requestCode.hexByte() + pid.hexByte()
-    val responsePidHex: String = pid.hexByte()
+    val value: String = service.requestCode.hexByte() + pidCode.hexByte()
+    val responsePidHex: String = pidCode.hexByte()
 
     data class SupportedPids(val range: SupportedPidRange) : OBDRequest(
-        service = OBDService.CurrentData,
-        pid = range.basePid,
+        service = OBDService.CURRENT_DATA,
+        pidCode = range.basePid,
     )
 
-    data object EngineCoolantTemperature : OBDRequest(OBDService.CurrentData, 0x05)
-    data object EngineRpm : OBDRequest(OBDService.CurrentData, 0x0C)
+    data class CurrentData(val pid: StandardPid) : OBDRequest(
+        service = OBDService.CURRENT_DATA,
+        pidCode = pid.code,
+    )
 }
 
 private fun Int.hexByte(): String = toString(16).uppercase().padStart(2, '0')

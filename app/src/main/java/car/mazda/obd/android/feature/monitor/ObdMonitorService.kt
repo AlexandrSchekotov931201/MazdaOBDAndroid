@@ -94,7 +94,7 @@ class ObdMonitorService : Service() {
         sessionManager = OBDSessionManager(
             client = client,
             scope = scope,
-            requiredPids = pollingTargets.mapTo(mutableSetOf()) { it.request.pid },
+            requiredPids = pollingTargets.mapTo(mutableSetOf()) { it.request.pidCode },
         )
         pollingEngine = TelemetryPollingEngine(client = client, sessionManager = sessionManager)
         speechPlayer = SpeechPlayer(applicationContext)

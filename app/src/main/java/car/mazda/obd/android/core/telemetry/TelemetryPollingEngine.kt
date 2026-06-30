@@ -46,8 +46,8 @@ class TelemetryPollingEngine(
             if (waitMs > 0) delay(waitMs)
 
             val capabilities = sessionManager.capabilities.value
-            if (capabilities.supports(target.request.pid)) {
-                emit(PollResult(target, safeRequest(target, capabilities.preferredEcuFor(target.request.pid))))
+            if (capabilities.supports(target.request.pidCode)) {
+                emit(PollResult(target, safeRequest(target, capabilities.preferredEcuFor(target.request.pidCode))))
             }
 
             val completedAtMs = monotonicTimeMs()

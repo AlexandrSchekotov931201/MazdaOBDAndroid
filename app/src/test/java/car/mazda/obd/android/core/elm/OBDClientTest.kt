@@ -2,6 +2,7 @@ package car.mazda.obd.android.core.elm
 
 import car.mazda.obd.android.core.elm.entity.OBDRequest
 import car.mazda.obd.android.core.elm.entity.OBDResponse
+import car.mazda.obd.android.core.elm.entity.StandardPid
 import car.mazda.obd.android.core.elm.transport.ElmTransport
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -19,7 +20,9 @@ class OBDClientTest {
         val client = OBDClient(transport)
         client.connect()
 
-        val response = client.requestObd(OBDRequest.EngineCoolantTemperature) as OBDResponse.Data
+        val response = client.requestObd(
+            OBDRequest.CurrentData(StandardPid.ENGINE_COOLANT_TEMPERATURE),
+        ) as OBDResponse.Data
 
         assertEquals(listOf("0105", "0105"), transport.commands)
         assertEquals("05", response.data.single().pid)
