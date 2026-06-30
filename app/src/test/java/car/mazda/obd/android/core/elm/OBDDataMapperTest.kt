@@ -3,7 +3,9 @@ package car.mazda.obd.android.core.elm
 import car.mazda.obd.android.core.elm.entity.OBDData
 import car.mazda.obd.android.core.elm.entity.OBDRequest
 import car.mazda.obd.android.core.elm.entity.OBDResponse
+import car.mazda.obd.android.core.elm.entity.SupportedPidRange
 import car.mazda.obd.android.core.elm.mapper.OBDDataMapper
+import car.mazda.obd.android.core.telemetry.StandardPidCatalog
 import car.mazda.obd.android.feature.monitor.TelemetryResponseMapper
 import car.mazda.obd.android.feature.trip.EngineRpmSample
 import org.junit.Assert.assertEquals
@@ -50,7 +52,7 @@ class OBDDataMapperTest {
     @Test
     fun decodesSupportedPidBitmapAndBuildsRangeRequest() {
         val supportedByEcu = SupportedPidDecoder.decodeByEcu(
-            basePid = 0x00,
+            range = SupportedPidRange.Pids01To20,
             responses = listOf(
                 OBDData("7E8", "00", listOf("08", "10", "00", "01")),
                 OBDData("7E9", "00", listOf("08", "00", "00", "00")),
@@ -59,10 +61,10 @@ class OBDDataMapperTest {
 
         assertEquals(setOf(0x05, 0x0C, 0x20), supportedByEcu.getValue("7E8"))
         assertEquals(setOf(0x05), supportedByEcu.getValue("7E9"))
-        assertEquals("0120", OBDRequest.SupportedPids(0x20).value)
+        assertEquals("0120", OBDRequest.SupportedPids(SupportedPidRange.Pids21To40).value)
         assertEquals(0x0C, OBDRequest.EngineRpm.pid)
         assertEquals("0C", OBDRequest.EngineRpm.responsePidHex)
-        val capabilities = VehicleCapabilities(setOf(0x00), supportedByEcu)
+        val capabilities = VehicleCapabilities(setOf(SupportedPidRange.Pids01To20), supportedByEcu)
         assertTrue(capabilities.supports(0x0C))
         assertFalse(capabilities.supports(0x0D))
         assertTrue(capabilities.supports(0x21))
@@ -98,5 +100,13 @@ class OBDDataMapperTest {
 
         assertTrue(stale is OBDResponse.NoData.Mismatched)
         assertEquals("7E9", selected.data.single().canId)
+    }
+
+    @Test
+    fun standardPollingCatalogHasValidStaticConfiguration() {
+        val targets = StandardPidCatalog.Default
+
+        assertTrue(targets.all { it.periodMs > 0 })
+        assertEquals(targets.size, targets.map { it.metric }.distinct().size)
     }
 }

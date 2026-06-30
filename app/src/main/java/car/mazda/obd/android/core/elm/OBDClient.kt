@@ -4,6 +4,7 @@ import car.mazda.obd.android.core.elm.entity.CanIds
 import car.mazda.obd.android.core.elm.entity.ElmCommand
 import car.mazda.obd.android.core.elm.entity.OBDRequest
 import car.mazda.obd.android.core.elm.entity.OBDResponse
+import car.mazda.obd.android.core.elm.entity.SupportedPidRange
 import car.mazda.obd.android.core.elm.exception.ElmPromptTimeoutException
 import car.mazda.obd.android.core.elm.exception.ProtocolException
 import car.mazda.obd.android.core.elm.mapper.OBDDataMapper
@@ -68,17 +69,20 @@ class OBDClient(
     }
 
     suspend fun discoverCapabilities(requiredPids: Set<Int>): VehicleCapabilities = mutex.withLock {
-        val discoveredRanges = mutableSetOf<Int>()
+        val discoveredRanges = mutableSetOf<SupportedPidRange>()
         val supportedByEcu = mutableMapOf<String, MutableSet<Int>>()
 
-        for (basePid in requiredPids.map(VehicleCapabilities::rangeFor).distinct().sorted()) {
-            val response = unlockedRequestObd(OBDRequest.SupportedPids(basePid))
+        val requiredRanges = requiredPids.map(SupportedPidRange::containing)
+            .distinct()
+            .sortedBy { it.basePid }
+        for (range in requiredRanges) {
+            val response = unlockedRequestObd(OBDRequest.SupportedPids(range))
             if (response !is OBDResponse.Data) continue
 
-            SupportedPidDecoder.decodeByEcu(basePid, response.data).forEach { (ecu, pids) ->
+            SupportedPidDecoder.decodeByEcu(range, response.data).forEach { (ecu, pids) ->
                 supportedByEcu.getOrPut(ecu) { mutableSetOf() } += pids
             }
-            discoveredRanges += basePid
+            discoveredRanges += range
         }
 
         VehicleCapabilities(

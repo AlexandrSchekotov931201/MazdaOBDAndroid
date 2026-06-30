@@ -6,8 +6,4 @@ data class PollingTarget(
     val metric: TelemetryMetric,
     val request: OBDRequest,
     val periodMs: Long,
-) {
-    init {
-        require(periodMs > 0)
-    }
-}
+)
