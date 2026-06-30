@@ -4,6 +4,7 @@ import time
 import random
 import json
 import queue
+from pathlib import Path
 from flask import Flask, request, jsonify, Response
 
 TCP_HOST = "0.0.0.0"
@@ -33,8 +34,100 @@ state = {
 
     # RPM test
     "rpm_test_running": False,
+
+    # Guided drive scenario playback
+    "scenario_id": None,
+    "scenario_name": None,
+    "scenario_running": False,
+    "scenario_paused": False,
+    "scenario_stage": "Manual control",
+    "scenario_progress": 0.0,
+    "scenario_elapsed_s": 0.0,
+    "scenario_duration_s": 0.0,
+    "scenario_speed": 1.0,
 }
 state_lock = threading.Lock()
+
+# Scenarios contain only standard read-only Mode 01 telemetry values. Each stage
+# transitions linearly from the previous values over its duration.
+SCENARIOS = {
+    "normal_trip": {
+        "name": "Normal city drive",
+        "description": "Cold start, gentle driving, full warm-up, and parking.",
+        "accent": "green",
+        "steps": [
+            {"label": "Ignition off", "duration": 3, "ignition": False, "rpm": 0, "coolant": 20},
+            {"label": "Engine start", "duration": 5, "ignition": True, "rpm": 1150, "coolant": 21},
+            {"label": "Cold idle", "duration": 8, "ignition": True, "rpm": 850, "coolant": 30},
+            {"label": "Gentle acceleration", "duration": 12, "ignition": True, "rpm": 2400, "coolant": 48},
+            {"label": "City driving", "duration": 18, "ignition": True, "rpm": 1900, "coolant": 72},
+            {"label": "Engine warmed up", "duration": 15, "ignition": True, "rpm": 2200, "coolant": 88},
+            {"label": "Parking", "duration": 8, "ignition": True, "rpm": 820, "coolant": 91},
+        ],
+    },
+    "cold_high_rpm": {
+        "name": "High RPM while cold",
+        "description": "RPM exceeds the safe range before the engine warms up.",
+        "accent": "orange",
+        "steps": [
+            {"label": "Cold start", "duration": 4, "ignition": True, "rpm": 1100, "coolant": 18},
+            {"label": "Short idle", "duration": 6, "ignition": True, "rpm": 850, "coolant": 23},
+            {"label": "Early acceleration", "duration": 5, "ignition": True, "rpm": 2800, "coolant": 28},
+            {"label": "Sustained high RPM", "duration": 12, "ignition": True, "rpm": 4200, "coolant": 38},
+            {"label": "Reduced load", "duration": 8, "ignition": True, "rpm": 1700, "coolant": 46},
+        ],
+    },
+    "gear_changes": {
+        "name": "Dynamic drive",
+        "description": "Repeated acceleration with realistic RPM drops during gear changes.",
+        "accent": "blue",
+        "steps": [
+            {"label": "Ready to start", "duration": 3, "ignition": True, "rpm": 850, "coolant": 82},
+            {"label": "First gear", "duration": 6, "ignition": True, "rpm": 3600, "coolant": 84},
+            {"label": "Shift to second", "duration": 1, "ignition": True, "rpm": 2100, "coolant": 84},
+            {"label": "Second gear", "duration": 7, "ignition": True, "rpm": 4300, "coolant": 86},
+            {"label": "Shift to third", "duration": 1, "ignition": True, "rpm": 2500, "coolant": 86},
+            {"label": "Steady cruising", "duration": 12, "ignition": True, "rpm": 2100, "coolant": 89},
+            {"label": "Stop", "duration": 5, "ignition": True, "rpm": 820, "coolant": 90},
+        ],
+    },
+    "overheat": {
+        "name": "Engine overheating",
+        "description": "Temperature gradually crosses warning and critical thresholds.",
+        "accent": "red",
+        "steps": [
+            {"label": "Warm engine", "duration": 5, "ignition": True, "rpm": 1900, "coolant": 88},
+            {"label": "Temperature rising", "duration": 12, "ignition": True, "rpm": 2400, "coolant": 103},
+            {"label": "Critical temperature", "duration": 10, "ignition": True, "rpm": 1800, "coolant": 112},
+            {"label": "Pulled over", "duration": 8, "ignition": True, "rpm": 820, "coolant": 108},
+            {"label": "Engine stopped", "duration": 5, "ignition": False, "rpm": 0, "coolant": 106},
+        ],
+    },
+    "stall_restart": {
+        "name": "Stall and restart",
+        "description": "The engine stalls while driving and starts again after a pause.",
+        "accent": "purple",
+        "steps": [
+            {"label": "Driving", "duration": 8, "ignition": True, "rpm": 2300, "coolant": 86},
+            {"label": "Unstable RPM", "duration": 4, "ignition": True, "rpm": 550, "coolant": 87},
+            {"label": "Engine stalled", "duration": 6, "ignition": False, "rpm": 0, "coolant": 87},
+            {"label": "Restart", "duration": 3, "ignition": True, "rpm": 1300, "coolant": 86},
+            {"label": "Stable idle", "duration": 8, "ignition": True, "rpm": 830, "coolant": 86},
+        ],
+    },
+    "short_cold_trip": {
+        "name": "Short trip without warm-up",
+        "description": "The engine is stopped before reaching operating temperature.",
+        "accent": "cyan",
+        "steps": [
+            {"label": "Cold start", "duration": 4, "ignition": True, "rpm": 1150, "coolant": 10},
+            {"label": "Gentle driving", "duration": 12, "ignition": True, "rpm": 1800, "coolant": 32},
+            {"label": "Brief acceleration", "duration": 7, "ignition": True, "rpm": 2600, "coolant": 48},
+            {"label": "Arrival", "duration": 5, "ignition": True, "rpm": 820, "coolant": 55},
+            {"label": "Cold engine stopped", "duration": 3, "ignition": False, "rpm": 0, "coolant": 55},
+        ],
+    },
+}
 
 # Track active TCP connections so we can drop them from UI
 connections = set()
@@ -184,7 +277,7 @@ HTML = """
              onchange="commitDelay(this.value)">
       <span id="delayVal"></span>
     </div>
-    <div class="row hint">Delay применяется к ответам TCP. На сервер отправляется при отпускании (onchange).</div>
+    <div class="row hint">Delay applies to TCP responses and is sent to the server when the slider is released.</div>
 
     <hr/>
 
@@ -507,7 +600,7 @@ connectEvents();
 
 @app.get("/")
 def index():
-    return HTML
+    return Path(__file__).with_name("elm_sim_ui.html").read_text(encoding="utf-8")
 
 @app.get("/api/events")
 def sse_events():
@@ -697,6 +790,176 @@ def set_debug_fault():
     notify_state()
     return jsonify(ok=True)
 
+# --- Guided scenario runner ---
+scenario_stop = threading.Event()
+scenario_thread = None
+scenario_thread_lock = threading.Lock()
+TRIP_FINISH_SIGNAL_SECONDS = 6.0
+
+def scenario_public_catalog():
+    return [
+        {
+            "id": scenario_id,
+            "name": scenario["name"],
+            "description": scenario["description"],
+            "accent": scenario["accent"],
+            "duration_s": sum(step["duration"] for step in scenario["steps"]),
+            "stages": [step["label"] for step in scenario["steps"]],
+        }
+        for scenario_id, scenario in SCENARIOS.items()
+    ]
+
+def apply_scenario_values(ignition, rpm, coolant):
+    with state_lock:
+        state["ignition"] = bool(ignition)
+        state["rpm"] = max(0, min(8000, int(rpm))) if ignition else 0
+        state["coolant_temp"] = max(-40, min(215, int(coolant)))
+
+def complete_trip_shutdown(coolant):
+    # Keep the ECU reachable with RPM=0 long enough for the Android trip
+    # debounce to observe an engine stop, then turn the ignition fully off.
+    apply_scenario_values(True, 0, coolant)
+    with state_lock:
+        state["scenario_stage"] = "Engine stopped · finishing trip"
+        state["scenario_progress"] = 1.0
+    notify_state()
+
+    deadline = time.monotonic() + TRIP_FINISH_SIGNAL_SECONDS
+    while time.monotonic() < deadline and not scenario_stop.is_set():
+        time.sleep(0.1)
+
+    apply_scenario_values(False, 0, coolant)
+
+def scenario_loop(scenario_id):
+    scenario = SCENARIOS[scenario_id]
+    steps = scenario["steps"]
+    total_duration = sum(step["duration"] for step in steps)
+    previous = {
+        "ignition": steps[0]["ignition"],
+        "rpm": steps[0]["rpm"],
+        "coolant": steps[0]["coolant"],
+    }
+    elapsed = 0.0
+    last_tick = time.monotonic()
+
+    try:
+        while elapsed < total_duration and not scenario_stop.is_set():
+            now = time.monotonic()
+            with state_lock:
+                paused = state["scenario_paused"]
+                speed = state["scenario_speed"]
+            if paused:
+                last_tick = now
+                time.sleep(0.1)
+                continue
+
+            elapsed = min(total_duration, elapsed + (now - last_tick) * speed)
+            last_tick = now
+            stage_start = 0.0
+            previous = {
+                "ignition": steps[0]["ignition"],
+                "rpm": steps[0]["rpm"],
+                "coolant": steps[0]["coolant"],
+            }
+
+            for index, step in enumerate(steps):
+                stage_end = stage_start + step["duration"]
+                if elapsed <= stage_end or index == len(steps) - 1:
+                    stage_fraction = min(1.0, max(0.0, (elapsed - stage_start) / step["duration"]))
+                    ignition = step["ignition"]
+                    if ignition and previous["ignition"]:
+                        rpm = previous["rpm"] + (step["rpm"] - previous["rpm"]) * stage_fraction
+                    else:
+                        rpm = step["rpm"]
+                    coolant = previous["coolant"] + (step["coolant"] - previous["coolant"]) * stage_fraction
+                    apply_scenario_values(ignition, rpm, coolant)
+                    with state_lock:
+                        state["scenario_stage"] = step["label"]
+                        state["scenario_progress"] = elapsed / total_duration
+                        state["scenario_elapsed_s"] = elapsed
+                    notify_state()
+                    break
+                previous = step
+                stage_start = stage_end
+
+            time.sleep(0.1)
+    finally:
+        completed = elapsed >= total_duration and not scenario_stop.is_set()
+        if completed:
+            with state_lock:
+                final_coolant = state["coolant_temp"]
+            complete_trip_shutdown(final_coolant)
+            completed = not scenario_stop.is_set()
+        with state_lock:
+            state["scenario_running"] = False
+            state["scenario_paused"] = False
+            state["scenario_progress"] = 1.0 if completed else state["scenario_progress"]
+            state["scenario_stage"] = "Trip completed · engine off" if completed else "Stopped"
+        notify_state()
+        scenario_stop.clear()
+
+@app.get("/api/scenarios")
+def get_scenarios():
+    return jsonify(scenario_public_catalog())
+
+@app.post("/api/scenarios/<scenario_id>/start")
+def start_scenario(scenario_id):
+    global scenario_thread
+    if scenario_id not in SCENARIOS:
+        return jsonify(ok=False, error="Unknown scenario"), 404
+
+    with scenario_thread_lock:
+        if scenario_thread and scenario_thread.is_alive():
+            scenario_stop.set()
+            scenario_thread.join(timeout=1.0)
+        scenario_stop.clear()
+        scenario = SCENARIOS[scenario_id]
+        with state_lock:
+            state["scenario_id"] = scenario_id
+            state["scenario_name"] = scenario["name"]
+            state["scenario_running"] = True
+            state["scenario_paused"] = False
+            state["scenario_stage"] = scenario["steps"][0]["label"]
+            state["scenario_progress"] = 0.0
+            state["scenario_elapsed_s"] = 0.0
+            state["scenario_duration_s"] = sum(step["duration"] for step in scenario["steps"])
+        scenario_thread = threading.Thread(target=scenario_loop, args=(scenario_id,), daemon=True)
+        scenario_thread.start()
+    notify_state()
+    return jsonify(ok=True)
+
+@app.post("/api/scenarios/pause")
+def pause_scenario():
+    with state_lock:
+        if state["scenario_running"]:
+            state["scenario_paused"] = True
+    notify_state()
+    return jsonify(ok=True)
+
+@app.post("/api/scenarios/resume")
+def resume_scenario():
+    with state_lock:
+        if state["scenario_running"]:
+            state["scenario_paused"] = False
+    notify_state()
+    return jsonify(ok=True)
+
+@app.post("/api/scenarios/stop")
+def stop_scenario():
+    scenario_stop.set()
+    return jsonify(ok=True)
+
+@app.post("/api/scenarios/speed")
+def set_scenario_speed():
+    data = request.get_json(force=True)
+    speed = float(data.get("speed", 1.0))
+    if speed not in {0.5, 1.0, 2.0, 5.0}:
+        speed = 1.0
+    with state_lock:
+        state["scenario_speed"] = speed
+    notify_state()
+    return jsonify(ok=True)
+
 # --- RPM test runner ---
 rpm_test_stop = threading.Event()
 rpm_test_thread = None
@@ -838,6 +1101,11 @@ def garbage_response(mode: str, normalized_cmd: str = "010C") -> str:
     return "NO DATA"
 
 def injected_response_mode(normalized_cmd: str):
+    # Fault payloads model ECU replies, not ELM setup commands. Transport-level
+    # faults (mute, delay, disconnect) can still affect every exchange.
+    if not normalized_cmd.startswith("01"):
+        return None
+
     with state_lock:
         one_shot_mode = state["one_shot_response_mode"]
         one_shot_only_010c = state["one_shot_only_010c"]
