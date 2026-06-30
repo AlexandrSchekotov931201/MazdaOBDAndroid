@@ -7,8 +7,3 @@ interface ElmTransport {
 
     fun disconnect()
 }
-
-internal class ElmTransportReadTimeoutException(
-    val partialRaw: String,
-    cause: Throwable,
-) : Exception("Timed out waiting for ELM response", cause)

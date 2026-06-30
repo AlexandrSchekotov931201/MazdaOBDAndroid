@@ -60,6 +60,8 @@ class OBDDataMapperTest {
         assertEquals(setOf(0x05, 0x0C, 0x20), supportedByEcu.getValue("7E8"))
         assertEquals(setOf(0x05), supportedByEcu.getValue("7E9"))
         assertEquals("0120", OBDRequest.SupportedPids(0x20).value)
+        assertEquals(0x0C, OBDRequest.EngineRpm.pid)
+        assertEquals("0C", OBDRequest.EngineRpm.responsePidHex)
         val capabilities = VehicleCapabilities(setOf(0x00), supportedByEcu)
         assertTrue(capabilities.supports(0x0C))
         assertFalse(capabilities.supports(0x0D))
