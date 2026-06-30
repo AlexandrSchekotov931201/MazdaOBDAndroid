@@ -21,6 +21,7 @@ class OBDSessionManager(
     private val client: OBDClient,
     private val scope: CoroutineScope,
     private val requiredPids: Set<Int>,
+    private val reconnectDelayMs: Long = RECONNECT_DELAY_MS,
 ) {
     private companion object {
         const val RECONNECT_DELAY_MS = 5000L
@@ -63,6 +64,18 @@ class OBDSessionManager(
             client.release()
             _sessionState.value = OBDSessionState.Error(t)
             throw t
+        }
+    }
+
+    suspend fun connectUntilReady() {
+        while (coroutineContext.isActive && _sessionState.value !is OBDSessionState.Ready) {
+            val error = runCatching { startSession() }.exceptionOrNull()
+            if (error == null) return
+            if (error is CancellationException) throw error
+            if (!error.isReconnectable()) return
+
+            AppLogger.log("Initial OBD connection retry in ${reconnectDelayMs}ms")
+            delay(reconnectDelayMs)
         }
     }
 
@@ -126,7 +139,7 @@ class OBDSessionManager(
                 if (err is CancellationException) throw err
                 if (err == null || !err.isReconnectable()) return
 
-                delay(RECONNECT_DELAY_MS)
+                delay(reconnectDelayMs)
                 AppLogger.log("Continue reconnect")
             }
         } finally {
