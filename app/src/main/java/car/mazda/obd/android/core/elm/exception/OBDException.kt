@@ -43,6 +43,12 @@ class ProtocolException(
     cause: Throwable? = null
 ) : OBDException(message, cause)
 
+/** Consecutive responses belonged to another PID, indicating a stale or shifted ELM stream. */
+class ResponseDesynchronizationException(
+    message: String = "ELM response stream is desynchronized",
+    cause: Throwable? = null,
+) : OBDException(message, cause)
+
 /** Any unexpected OBD error that does not fit a narrower category. */
 class UnknownObdException(
     message: String = "Unknown error",

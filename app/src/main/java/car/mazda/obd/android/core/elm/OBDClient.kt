@@ -7,6 +7,7 @@ import car.mazda.obd.android.core.elm.entity.OBDResponse
 import car.mazda.obd.android.core.elm.entity.SupportedPidRange
 import car.mazda.obd.android.core.elm.exception.ElmPromptTimeoutException
 import car.mazda.obd.android.core.elm.exception.ProtocolException
+import car.mazda.obd.android.core.elm.exception.ResponseDesynchronizationException
 import car.mazda.obd.android.core.elm.mapper.OBDDataMapper
 import car.mazda.obd.android.core.elm.transport.ElmTransport
 import car.mazda.obd.android.core.elm.transport.ElmTransportReadTimeoutException
@@ -99,6 +100,16 @@ class OBDClient(
 
     private suspend fun unlockedRequestElm(cmd: ElmCommand): OBDResponse {
         val response = unlockedRequest(cmd.value)
+        if (!cmd.required && response.isUnsupportedElmCommand()) {
+            AppLogger.event(
+                level = Level.HandledError,
+                layer = Layer.Elm,
+                operation = cmd.value.operationName(),
+                message = "Optional ELM command is unsupported; continuing initialization",
+                raw = (response as OBDResponse.NoData).raw,
+            )
+            return response
+        }
         if (!cmd.accepts(response)) {
             val raw = (response as? OBDResponse.NoData)?.raw.orEmpty()
             AppLogger.event(
@@ -137,7 +148,7 @@ class OBDClient(
             message = "Repeated mismatched response; invalidating ELM transport",
             raw = retryResponse.raw,
         )
-        throw ProtocolException(
+        throw ResponseDesynchronizationException(
             "Repeated response mismatch for ${request.value}: ${retryResponse.actualSources.joinToString()}",
         )
     }
@@ -269,6 +280,9 @@ class OBDClient(
             ElmCommand.CanStatus -> Regex("T:[0-9A-F]{2}\\s+R:[0-9A-F]{2}").containsMatchIn(raw)
         }
     }
+
+    private fun OBDResponse.isUnsupportedElmCommand(): Boolean =
+        this is OBDResponse.NoData && raw.contains("?")
 
     private fun String.visibleForError(): String =
         replace("\r", "\\r").replace("\n", "\\n").take(200)

@@ -5,6 +5,7 @@ import car.mazda.obd.android.core.elm.entity.OBDResponse
 import car.mazda.obd.android.core.elm.entity.StandardPid
 import car.mazda.obd.android.core.elm.exception.ElmPromptTimeoutException
 import car.mazda.obd.android.core.elm.exception.ProtocolException
+import car.mazda.obd.android.core.elm.exception.ResponseDesynchronizationException
 import car.mazda.obd.android.core.elm.transport.ElmTransport
 import car.mazda.obd.android.core.elm.transport.ElmTransportReadTimeoutException
 import kotlinx.coroutines.runBlocking
@@ -76,7 +77,7 @@ class OBDClientTest {
             client.requestObd(OBDRequest.CurrentData(StandardPid.ENGINE_COOLANT_TEMPERATURE))
         }.exceptionOrNull()
 
-        assertTrue(error is ProtocolException)
+        assertTrue(error is ResponseDesynchronizationException)
         assertEquals(listOf("0105", "0105"), transport.commands)
         assertEquals(1, transport.disconnectCount)
     }
@@ -111,6 +112,26 @@ class OBDClientTest {
         client.initializingEcu()
 
         assertEquals(7, transport.commands.size)
+        assertEquals(0, transport.disconnectCount)
+    }
+
+    @Test
+    fun continuesWhenOptionalInitializationCommandsAreUnsupported() = runBlocking {
+        val transport = FakeElmTransport(
+            "OBDII v1.5\r>",
+            "OK\r>",
+            "OK\r>",
+            "?\r>",
+            "OK\r>",
+            "?\r>",
+            "OK\r>",
+        )
+        val client = OBDClient(transport)
+        client.connect()
+
+        client.initializingEcu()
+
+        assertEquals(listOf("ATZ", "ATE0", "ATL0", "ATS1", "ATH1", "ATAT1", "ATSP0"), transport.commands)
         assertEquals(0, transport.disconnectCount)
     }
 

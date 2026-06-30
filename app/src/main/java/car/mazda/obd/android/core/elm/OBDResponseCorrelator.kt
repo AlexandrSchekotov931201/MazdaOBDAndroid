@@ -16,9 +16,10 @@ internal object OBDResponseCorrelator {
         }
         val matchingSource = preferredEcu?.let { source ->
             matchingPid.filter { it.canId.equals(source, ignoreCase = true) }
-        } ?: matchingPid
+        }.orEmpty()
 
         if (matchingSource.isNotEmpty()) return OBDResponse.Data(matchingSource)
+        if (matchingPid.isNotEmpty()) return OBDResponse.Data(matchingPid)
 
         val actualSources = response.data.map { "${it.canId}:${it.pid}" }
         return OBDResponse.NoData.Mismatched(

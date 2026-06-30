@@ -105,6 +105,20 @@ class OBDDataMapperTest {
     }
 
     @Test
+    fun fallsBackToAnotherEcuWhenPreferredEcuDoesNotRespond() {
+        val response = OBDResponseCorrelator.correlate(
+            response = OBDResponse.Data(
+                listOf(OBDData("7E9", "0C", listOf("10", "00"))),
+            ),
+            request = OBDRequest.CurrentData(StandardPid.ENGINE_RPM),
+            preferredEcu = "7E8",
+        ) as OBDResponse.Data
+
+        assertEquals("7E9", response.data.single().canId)
+        assertEquals("0C", response.data.single().pid)
+    }
+
+    @Test
     fun standardPollingCatalogHasValidStaticConfiguration() {
         val targets = StandardPidCatalog.Default
 

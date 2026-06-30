@@ -4,7 +4,7 @@ import car.mazda.obd.android.core.elm.exception.AdapterUnreachableException
 import car.mazda.obd.android.core.elm.exception.ElmPromptTimeoutException
 import car.mazda.obd.android.core.elm.exception.LostConnectionException
 import car.mazda.obd.android.core.elm.exception.NetworkUnavailableException
-import car.mazda.obd.android.core.elm.exception.ProtocolException
+import car.mazda.obd.android.core.elm.exception.ResponseDesynchronizationException
 import car.mazda.obd.android.core.logs.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -142,5 +142,5 @@ class OBDSessionManager(
                 this is NetworkUnavailableException ||
                 this is AdapterUnreachableException ||
                 this is ElmPromptTimeoutException ||
-                this is ProtocolException
+                this is ResponseDesynchronizationException
 }
