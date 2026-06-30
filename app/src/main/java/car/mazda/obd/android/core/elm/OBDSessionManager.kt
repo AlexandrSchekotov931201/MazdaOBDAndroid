@@ -2,8 +2,10 @@ package car.mazda.obd.android.core.elm
 
 import car.mazda.obd.android.core.elm.exception.AdapterUnreachableException
 import car.mazda.obd.android.core.elm.exception.ElmPromptTimeoutException
+import car.mazda.obd.android.core.elm.exception.ElmCommandInterruptedException
 import car.mazda.obd.android.core.elm.exception.LostConnectionException
 import car.mazda.obd.android.core.elm.exception.NetworkUnavailableException
+import car.mazda.obd.android.core.elm.exception.ResponseDesynchronizationException
 import car.mazda.obd.android.core.logs.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +22,7 @@ class OBDSessionManager(
     private val client: OBDClient,
     private val scope: CoroutineScope,
     private val requiredPids: Set<Int>,
+    private val reconnectDelayMs: Long = RECONNECT_DELAY_MS,
 ) {
     private companion object {
         const val RECONNECT_DELAY_MS = 5000L
@@ -65,6 +68,18 @@ class OBDSessionManager(
         }
     }
 
+    suspend fun connectUntilReady() {
+        while (coroutineContext.isActive && _sessionState.value !is OBDSessionState.Ready) {
+            val error = runCatching { startSession() }.exceptionOrNull()
+            if (error == null) return
+            if (error is CancellationException) throw error
+            if (!error.isReconnectable()) return
+
+            AppLogger.log("Initial OBD connection retry in ${reconnectDelayMs}ms")
+            delay(reconnectDelayMs)
+        }
+    }
+
     suspend fun stopSession(cancelReconnect: Boolean = true) {
         if (cancelReconnect) {
             synchronized(reconnectLock) {
@@ -88,6 +103,7 @@ class OBDSessionManager(
         synchronized(reconnectLock) {
             if (reconnectJob?.isActive == true) return
 
+            _sessionState.value = OBDSessionState.Error(t)
             reconnectsWithoutValidData++
             if (reconnectsWithoutValidData >= FAILURES_BEFORE_REDISCOVERY) {
                 AppLogger.log("Invalidating cached OBD-II capabilities after repeated reconnects without valid data")
@@ -124,7 +140,7 @@ class OBDSessionManager(
                 if (err is CancellationException) throw err
                 if (err == null || !err.isReconnectable()) return
 
-                delay(RECONNECT_DELAY_MS)
+                delay(reconnectDelayMs)
                 AppLogger.log("Continue reconnect")
             }
         } finally {
@@ -139,5 +155,7 @@ class OBDSessionManager(
         this is LostConnectionException ||
                 this is NetworkUnavailableException ||
                 this is AdapterUnreachableException ||
-                this is ElmPromptTimeoutException
+                this is ElmCommandInterruptedException ||
+                this is ElmPromptTimeoutException ||
+                this is ResponseDesynchronizationException
 }

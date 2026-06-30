@@ -44,7 +44,6 @@ import car.mazda.obd.android.feature.warmup.WarmupWarning
 import car.mazda.obd.android.feature.warmup.WarmupWarningManager
 import car.mazda.obd.android.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -53,7 +52,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
@@ -173,7 +171,7 @@ class ObdMonitorService : Service() {
             launch { observeSessionState() }
             launch { observeTelemetryState() }
             launch { observeTripState() }
-            launch { keepInitialSessionConnecting() }
+            launch { connectInitialSession() }
         }
 
         notificationJob = scope.launch {
@@ -204,19 +202,9 @@ class ObdMonitorService : Service() {
             }
     }
 
-    private suspend fun keepInitialSessionConnecting() {
+    private suspend fun connectInitialSession() {
         tripSummaryRepository.refreshRecentTrips()
-
-        while (scope.isActive && sessionManager.sessionState.value !is OBDSessionState.Ready) {
-            val error = runCatching { sessionManager.startSession() }
-                .exceptionOrNull()
-
-            if (error == null) return
-            if (error is CancellationException) throw error
-
-            AppLogger.log("Initial OBD connection retry in ${INITIAL_RECONNECT_DELAY_MS}ms")
-            kotlinx.coroutines.delay(INITIAL_RECONNECT_DELAY_MS)
-        }
+        sessionManager.connectUntilReady()
     }
 
     private suspend fun observeTripState() {
@@ -386,7 +374,6 @@ class ObdMonitorService : Service() {
         private const val ACTION_STOP = "car.mazda.obd.android.action.STOP_OBD_MONITOR"
         private const val ACTION_REFRESH_ROUTE_RECORDING = "car.mazda.obd.android.action.REFRESH_ROUTE_RECORDING"
         private const val RPM_STALE_HOLD_MS = 2_500L
-        private const val INITIAL_RECONNECT_DELAY_MS = 10_000L
 
         fun start(context: Context) {
             val intent = Intent(context, ObdMonitorService::class.java)

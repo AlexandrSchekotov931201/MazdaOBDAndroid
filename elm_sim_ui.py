@@ -884,9 +884,17 @@ def handle_command(cmd: str) -> str:
         print("INJECT:", injected_mode, "for", c)
         return garbage_response(injected_mode, c)
 
-    # ELM init sequence (expand as needed)
-    if c in ("ATZ", "ATE0", "ATL0", "ATS0", "ATH1", "ATSP0"):
+    # ELM reset identifies the adapter; the Android client validates this separately from OK replies.
+    if c == "ATZ":
+        return "ELM327 v1.5"
+
+    # ELM init sequence used by the Android client.
+    if c in ("ATE0", "ATL0", "ATS0", "ATS1", "ATH1", "ATAT1", "ATSP0"):
         return "OK"
+
+    # Supported Mode 01 PIDs 01-20: coolant temperature (05) and engine RPM (0C).
+    if c == "0100":
+        return "7E8 06 41 00 08 10 00 00"
 
     # RPM request (01 0C)
     if c == "010C":
