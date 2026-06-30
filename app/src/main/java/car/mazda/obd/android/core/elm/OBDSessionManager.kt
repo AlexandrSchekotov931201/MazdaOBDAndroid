@@ -1,6 +1,7 @@
 package car.mazda.obd.android.core.elm
 
 import car.mazda.obd.android.core.elm.exception.AdapterUnreachableException
+import car.mazda.obd.android.core.elm.exception.ElmPromptTimeoutException
 import car.mazda.obd.android.core.elm.exception.LostConnectionException
 import car.mazda.obd.android.core.elm.exception.NetworkUnavailableException
 import car.mazda.obd.android.core.logs.AppLogger
@@ -18,16 +19,22 @@ import kotlin.coroutines.coroutineContext
 class OBDSessionManager(
     private val client: OBDClient,
     private val scope: CoroutineScope,
+    private val requiredPids: Set<Int>,
 ) {
     private companion object {
         const val RECONNECT_DELAY_MS = 5000L
+        const val FAILURES_BEFORE_REDISCOVERY = 3
     }
 
     private val _sessionState = MutableStateFlow<OBDSessionState>(OBDSessionState.Idle)
     val sessionState: StateFlow<OBDSessionState> = _sessionState
+    private val _capabilities = MutableStateFlow(VehicleCapabilities.Unknown)
+    val capabilities: StateFlow<VehicleCapabilities> = _capabilities
 
     private val reconnectLock = Any()
     private var reconnectJob: Job? = null
+    private var capabilityDiscoveryAttempted = false
+    private var reconnectsWithoutValidData = 0
 
     suspend fun startSession() {
         try {
@@ -38,6 +45,14 @@ class OBDSessionManager(
             AppLogger.log("Initializing ECU")
             _sessionState.value = OBDSessionState.InitializingEcu
             client.initializingEcu()
+
+            if (!capabilityDiscoveryAttempted) {
+                AppLogger.log("Discovering capabilities for active standard OBD-II PIDs")
+                _capabilities.value = client.discoverCapabilities(requiredPids)
+                capabilityDiscoveryAttempted = true
+            } else {
+                AppLogger.log("Reusing cached OBD-II capabilities after transport reconnect")
+            }
 
             AppLogger.log("OBD session ready")
             _sessionState.value = OBDSessionState.Ready
@@ -58,6 +73,11 @@ class OBDSessionManager(
             }
         }
         client.release()
+        if (cancelReconnect) {
+            _capabilities.value = VehicleCapabilities.Unknown
+            capabilityDiscoveryAttempted = false
+            reconnectsWithoutValidData = 0
+        }
         _sessionState.value = OBDSessionState.Idle
     }
 
@@ -68,9 +88,23 @@ class OBDSessionManager(
         synchronized(reconnectLock) {
             if (reconnectJob?.isActive == true) return
 
+            reconnectsWithoutValidData++
+            if (reconnectsWithoutValidData >= FAILURES_BEFORE_REDISCOVERY) {
+                AppLogger.log("Invalidating cached OBD-II capabilities after repeated reconnects without valid data")
+                _capabilities.value = VehicleCapabilities.Unknown
+                capabilityDiscoveryAttempted = false
+                reconnectsWithoutValidData = 0
+            }
+
             reconnectJob = scope.launch(Dispatchers.IO) {
                 reconnectLoop()
             }
+        }
+    }
+
+    fun onValidObdData() {
+        synchronized(reconnectLock) {
+            reconnectsWithoutValidData = 0
         }
     }
 
@@ -104,5 +138,6 @@ class OBDSessionManager(
     private fun Throwable.isReconnectable(): Boolean =
         this is LostConnectionException ||
                 this is NetworkUnavailableException ||
-                this is AdapterUnreachableException
+                this is AdapterUnreachableException ||
+                this is ElmPromptTimeoutException
 }

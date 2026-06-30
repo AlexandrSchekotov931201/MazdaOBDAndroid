@@ -1,13 +1,12 @@
-package car.mazda.obd.android.feature.dashboard.mapper
+package car.mazda.obd.android.feature.monitor
 
-import car.mazda.obd.android.core.elm.entity.CanIds
 import car.mazda.obd.android.core.elm.entity.OBDData
 import car.mazda.obd.android.core.elm.entity.OBDResponse
 import car.mazda.obd.android.core.logs.AppLogger
 import car.mazda.obd.android.feature.trip.EngineRpmSample
 import car.mazda.obd.android.feature.warmup.EngineTemperatureSample
 
-class MainViewMapper {
+class TelemetryResponseMapper {
 
     private companion object {
         private const val ENGINE_COOLANT_TEMP_PID = "05"
@@ -42,6 +41,11 @@ class MainViewMapper {
 
                     is OBDResponse.NoData.Unrecognized -> {
                         AppLogger.handledError("Handled unrecognized RPM response: pid=010C raw=${response.raw.compactRaw()}")
+                        EngineRpmSample.NoData
+                    }
+
+                    is OBDResponse.NoData.Mismatched -> {
+                        AppLogger.handledError("Discarded mismatched RPM response: expected=${response.expectedPid} actual=${response.actualSources}")
                         EngineRpmSample.NoData
                     }
 
@@ -92,6 +96,11 @@ class MainViewMapper {
                         EngineTemperatureSample.NoData
                     }
 
+                    is OBDResponse.NoData.Mismatched -> {
+                        AppLogger.handledError("Discarded mismatched temperature response: expected=${response.expectedPid} actual=${response.actualSources}")
+                        EngineTemperatureSample.NoData
+                    }
+
                     is OBDResponse.NoData.Error -> {
                         AppLogger.handledError(
                             "Handled $errorLogPrefix: pid=$pid error=${response.throwable::class.simpleName}: ${response.throwable.message} raw=${response.raw.compactRaw()}"
@@ -105,7 +114,7 @@ class MainViewMapper {
 
     private fun mapEngineRpm(dataList: List<OBDData>): Int? {
         val rpmData = dataList.firstOrNull {
-            it.canId.isEngineEcuResponse() && it.pid == ENGINE_RPM_PID
+            it.pid.equals(ENGINE_RPM_PID, ignoreCase = true)
         } ?: run {
             AppLogger.handledError("Handled RPM response without engine RPM data: pid=010C parsed=${dataList.describe()}")
             return null
@@ -123,7 +132,7 @@ class MainViewMapper {
 
     private fun mapTemperature(dataList: List<OBDData>, pid: String): Int? {
         val tempData = dataList.firstOrNull {
-            it.canId.isEngineEcuResponse() && it.pid == pid
+            it.pid.equals(pid, ignoreCase = true)
         } ?: return null
 
         return try {
@@ -132,9 +141,6 @@ class MainViewMapper {
             null
         }
     }
-
-    private fun String.isEngineEcuResponse(): Boolean =
-        this == CanIds.ENGINE_ECU_RESPONSE || matches(Regex("7E[8-F]", RegexOption.IGNORE_CASE))
 
     private fun String.compactRaw(): String =
         lineSequence()
