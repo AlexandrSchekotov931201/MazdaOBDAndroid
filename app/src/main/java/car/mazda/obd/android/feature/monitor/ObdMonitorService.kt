@@ -107,7 +107,6 @@ class ObdMonitorService : Service() {
             it.copy(
                 floatingWidgetEnabled = preferences.floatingWidgetEnabled,
                 floatingWidgetSize = preferences.floatingWidgetSize,
-                autoStartEnabled = preferences.autoStartEnabled,
                 continueAfterAppClosed = preferences.continueAfterAppClosed,
             )
         }

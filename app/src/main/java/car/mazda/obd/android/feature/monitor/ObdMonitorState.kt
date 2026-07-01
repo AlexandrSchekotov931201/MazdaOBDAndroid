@@ -12,7 +12,6 @@ data class ObdMonitorState(
     val overlayEnabled: Boolean = false,
     val floatingWidgetEnabled: Boolean = true,
     val floatingWidgetSize: FloatingWidgetSize = FloatingWidgetSize.Small,
-    val autoStartEnabled: Boolean = true,
     val continueAfterAppClosed: Boolean = false,
     val isAppForeground: Boolean = false,
     val activeTrip: ActiveTripSummary? = null,

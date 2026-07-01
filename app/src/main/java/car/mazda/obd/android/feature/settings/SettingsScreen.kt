@@ -43,7 +43,6 @@ fun SettingsScreen(
     val overlayPermissionGranted by viewModel.overlayEnabledState.collectAsStateWithLifecycle()
     val floatingWidgetEnabled by viewModel.floatingWidgetEnabledState.collectAsStateWithLifecycle()
     val floatingWidgetSize by viewModel.floatingWidgetSizeState.collectAsStateWithLifecycle()
-    val autoStartEnabled by viewModel.autoStartEnabledState.collectAsStateWithLifecycle()
     val continueAfterAppClosed by viewModel.continueAfterAppClosedState.collectAsStateWithLifecycle()
     val routeRecordingEnabled by routeSettingsViewModel.recordingEnabled.collectAsStateWithLifecycle()
 
@@ -108,18 +107,6 @@ fun SettingsScreen(
                 },
                 checked = continueAfterAppClosed,
                 onCheckedChange = viewModel::setContinueAfterAppClosed,
-            )
-
-            SettingsSwitchCard(
-                title = "Start after phone boot",
-                subtitle = if (continueAfterAppClosed) {
-                    if (autoStartEnabled) "Enabled" else "Disabled"
-                } else {
-                    "Requires background operation after app close"
-                },
-                checked = autoStartEnabled,
-                onCheckedChange = viewModel::setAutoStartEnabled,
-                enabled = continueAfterAppClosed,
             )
 
         }

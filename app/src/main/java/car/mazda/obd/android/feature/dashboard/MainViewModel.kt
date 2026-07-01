@@ -54,10 +54,6 @@ class MainViewModel(
         .map { it.floatingWidgetSize }
         .stateIn(viewModelScope, SharingStarted.Eagerly, preferences.floatingWidgetSize)
 
-    val autoStartEnabledState: StateFlow<Boolean> = ObdMonitorStateStore.state
-        .map { it.autoStartEnabled }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, preferences.autoStartEnabled)
-
     val continueAfterAppClosedState: StateFlow<Boolean> = ObdMonitorStateStore.state
         .map { it.continueAfterAppClosed }
         .stateIn(viewModelScope, SharingStarted.Eagerly, preferences.continueAfterAppClosed)
@@ -73,7 +69,6 @@ class MainViewModel(
             it.copy(
                 floatingWidgetEnabled = preferences.floatingWidgetEnabled,
                 floatingWidgetSize = preferences.floatingWidgetSize,
-                autoStartEnabled = preferences.autoStartEnabled,
                 continueAfterAppClosed = preferences.continueAfterAppClosed,
             )
         }
@@ -91,11 +86,6 @@ class MainViewModel(
     fun setFloatingWidgetEnabled(enabled: Boolean) {
         preferences.floatingWidgetEnabled = enabled
         ObdMonitorStateStore.update { it.copy(floatingWidgetEnabled = enabled) }
-    }
-
-    fun setAutoStartEnabled(enabled: Boolean) {
-        preferences.autoStartEnabled = enabled
-        ObdMonitorStateStore.update { it.copy(autoStartEnabled = enabled) }
     }
 
     fun setContinueAfterAppClosed(enabled: Boolean) {
