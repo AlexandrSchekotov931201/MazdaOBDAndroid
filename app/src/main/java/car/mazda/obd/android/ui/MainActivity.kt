@@ -182,6 +182,7 @@ open class MainActivity : ComponentActivity() {
                                 onSaveAdapterEndpoint = { endpoint ->
                                     adapterConnectionPreferences.save(endpoint)
                                     adapterEndpoint = endpoint
+                                    ObdMonitorService.reconnectWithSavedEndpoint(applicationContext)
                                 },
                             )
                         }

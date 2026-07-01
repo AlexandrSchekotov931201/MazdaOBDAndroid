@@ -50,6 +50,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -83,22 +84,11 @@ class ObdMonitorService : Service() {
     private var latestCoolantTemp: Int? = null
     private var monitorJob: Job? = null
     private var notificationJob: Job? = null
+    private var endpointReconnectJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
-        val connectivityManager = requireNotNull(getSystemService(ConnectivityManager::class.java)) {
-            "ConnectivityManager is required for OBD Wi-Fi routing"
-        }
-        val endpoint = requireNotNull(AdapterConnectionPreferences(this).load()) {
-            "OBD adapter connection settings are required before monitoring starts"
-        }
-        client = OBDClient(WifiElmTransport(connectivityManager, endpoint))
-        sessionManager = OBDSessionManager(
-            client = client,
-            scope = scope,
-            requiredPids = pollingTargets.mapTo(mutableSetOf()) { it.request.pidCode },
-        )
-        pollingEngine = TelemetryPollingEngine(client = client, sessionManager = sessionManager)
+        createObdConnectionStack()
         speechPlayer = SpeechPlayer(applicationContext)
         tripSummaryRepository = TripSummaryRepository(applicationContext)
         notificationManager = getSystemService(NotificationManager::class.java)
@@ -132,6 +122,7 @@ class ObdMonitorService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_REFRESH_ROUTE_RECORDING -> refreshRouteRecording()
+            ACTION_RECONNECT_WITH_SAVED_ENDPOINT -> reconnectWithSavedEndpoint()
             else -> startMonitoring()
         }
         return if (preferences.continueAfterAppClosed) START_STICKY else START_NOT_STICKY
@@ -150,6 +141,7 @@ class ObdMonitorService : Service() {
     override fun onDestroy() {
         monitorJob?.cancel()
         notificationJob?.cancel()
+        endpointReconnectJob?.cancel()
         routeRecorder.stop()
         runBlocking(Dispatchers.IO + NonCancellable) {
             sessionManager.stopSession()
@@ -178,13 +170,49 @@ class ObdMonitorService : Service() {
             launch { connectInitialSession() }
         }
 
-        notificationJob = scope.launch {
-            ObdMonitorStateStore.state.collect { state ->
-                notificationManager.notify(NOTIFICATION_ID, buildNotification(state))
-                overlayController.update(state)
-                ObdStatusWidgetProvider.updateAll(applicationContext)
+        if (notificationJob?.isActive != true) {
+            notificationJob = scope.launch {
+                ObdMonitorStateStore.state.collect { state ->
+                    notificationManager.notify(NOTIFICATION_ID, buildNotification(state))
+                    overlayController.update(state)
+                    ObdStatusWidgetProvider.updateAll(applicationContext)
+                }
             }
         }
+    }
+
+    private fun reconnectWithSavedEndpoint() {
+        if (endpointReconnectJob?.isActive == true) return
+        if (monitorJob?.isActive != true) {
+            createObdConnectionStack()
+            startMonitoring()
+            return
+        }
+
+        endpointReconnectJob = scope.launch {
+            AppLogger.log("Applying updated OBD adapter endpoint and reconnecting")
+            ObdMonitorStateStore.update { it.copy(connectionText = "Applying adapter settings...") }
+            monitorJob?.cancelAndJoin()
+            sessionManager.stopSession()
+            createObdConnectionStack()
+            startMonitoring()
+        }
+    }
+
+    private fun createObdConnectionStack() {
+        val connectivityManager = requireNotNull(getSystemService(ConnectivityManager::class.java)) {
+            "ConnectivityManager is required for OBD Wi-Fi routing"
+        }
+        val endpoint = requireNotNull(AdapterConnectionPreferences(this).load()) {
+            "OBD adapter connection settings are required before monitoring starts"
+        }
+        client = OBDClient(WifiElmTransport(connectivityManager, endpoint))
+        sessionManager = OBDSessionManager(
+            client = client,
+            scope = scope,
+            requiredPids = pollingTargets.mapTo(mutableSetOf()) { it.request.pidCode },
+        )
+        pollingEngine = TelemetryPollingEngine(client = client, sessionManager = sessionManager)
     }
 
     private suspend fun observeSessionState() {
@@ -377,6 +405,8 @@ class ObdMonitorService : Service() {
         private const val NOTIFICATION_ID = 42
         private const val ACTION_STOP = "car.mazda.obd.android.action.STOP_OBD_MONITOR"
         private const val ACTION_REFRESH_ROUTE_RECORDING = "car.mazda.obd.android.action.REFRESH_ROUTE_RECORDING"
+        private const val ACTION_RECONNECT_WITH_SAVED_ENDPOINT =
+            "car.mazda.obd.android.action.RECONNECT_WITH_SAVED_ENDPOINT"
         private const val RPM_STALE_HOLD_MS = 2_500L
 
         fun start(context: Context) {
@@ -394,6 +424,14 @@ class ObdMonitorService : Service() {
             ContextCompat.startForegroundService(
                 context,
                 Intent(context, ObdMonitorService::class.java).setAction(ACTION_REFRESH_ROUTE_RECORDING),
+            )
+        }
+
+        fun reconnectWithSavedEndpoint(context: Context) {
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, ObdMonitorService::class.java)
+                    .setAction(ACTION_RECONNECT_WITH_SAVED_ENDPOINT),
             )
         }
     }

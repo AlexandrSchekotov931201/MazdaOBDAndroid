@@ -63,7 +63,7 @@ fun AdapterConnectionSettings(
     ) {
         Text("OBD adapter", style = MaterialTheme.typography.titleLarge)
         Text(
-            "The saved address is used for new connections and reconnections after monitoring is restarted.",
+            "Saving a new address immediately disconnects the current adapter and reconnects using the new values.",
             style = MaterialTheme.typography.bodyMedium,
         )
         AdapterConnectionForm(
