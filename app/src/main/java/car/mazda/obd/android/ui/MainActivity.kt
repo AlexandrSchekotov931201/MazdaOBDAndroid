@@ -233,6 +233,9 @@ open class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        ObdMonitorStateStore.update {
+            it.copy(overlayEnabled = Settings.canDrawOverlays(this))
+        }
         locationPermissionCoordinator.onResume()
         if (!locationPermissionCoordinator.permissionGranted && routeSettingsViewModel.recordingEnabled.value) {
             routeSettingsViewModel.setRecordingEnabled(false)
