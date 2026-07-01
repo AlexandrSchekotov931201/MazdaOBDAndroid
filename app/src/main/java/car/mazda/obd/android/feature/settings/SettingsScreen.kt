@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -46,6 +47,7 @@ fun SettingsScreen(
     val autoStartEnabled by viewModel.autoStartEnabledState.collectAsStateWithLifecycle()
     val continueAfterAppClosed by viewModel.continueAfterAppClosedState.collectAsStateWithLifecycle()
     val routeRecordingEnabled by routeSettingsViewModel.recordingEnabled.collectAsStateWithLifecycle()
+    val adapterVerified = AdapterConnectionPreferences(LocalContext.current).isVerified
 
     Column(modifier = modifier.fillMaxSize()) {
         AppToolbar(
@@ -77,19 +79,19 @@ fun SettingsScreen(
 
             SettingsSwitchCard(
                 title = "Floating widget",
-                subtitle = if (overlayPermissionGranted) {
-                    "Shows RPM, connection status, and coolant temperature"
-                } else {
-                    "Overlay permission required to show RPM, connection, and coolant"
+                subtitle = when {
+                    !adapterVerified -> "Available after a successful adapter connection"
+                    overlayPermissionGranted -> "Shows RPM, connection status, and coolant temperature"
+                    else -> "Overlay permission required to show RPM, connection, and coolant"
                 },
-                checked = floatingWidgetEnabled,
+                checked = floatingWidgetEnabled && adapterVerified,
                 onCheckedChange = viewModel::setFloatingWidgetEnabled,
-                enabled = overlayPermissionGranted,
+                enabled = adapterVerified && overlayPermissionGranted,
             ) {
                 WidgetSizeSelector(
                     selectedSize = floatingWidgetSize,
                     onSelectSize = viewModel::setFloatingWidgetSize,
-                    enabled = floatingWidgetEnabled && overlayPermissionGranted,
+                    enabled = floatingWidgetEnabled && adapterVerified && overlayPermissionGranted,
                 )
                 OutlinedButton(
                     onClick = onRequestOverlayPermission,
