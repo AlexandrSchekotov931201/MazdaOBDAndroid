@@ -19,13 +19,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import car.mazda.obd.android.feature.dashboard.MainViewModel
 import car.mazda.obd.android.feature.monitor.FloatingWidgetSize
-import car.mazda.obd.android.feature.monitor.MonitorConnectionStatus
 import car.mazda.obd.android.ui.AppToolbar
 import car.mazda.obd.android.feature.trip.route.TripRouteSettingsViewModel
 import car.mazda.obd.android.core.elm.transport.AdapterEndpoint
@@ -48,9 +46,6 @@ fun SettingsScreen(
     val autoStartEnabled by viewModel.autoStartEnabledState.collectAsStateWithLifecycle()
     val continueAfterAppClosed by viewModel.continueAfterAppClosedState.collectAsStateWithLifecycle()
     val routeRecordingEnabled by routeSettingsViewModel.recordingEnabled.collectAsStateWithLifecycle()
-    val connectionStatus by viewModel.connectionStatusState.collectAsStateWithLifecycle()
-    val adapterVerified = AdapterConnectionPreferences(LocalContext.current).isVerified ||
-        connectionStatus == MonitorConnectionStatus.Ready
 
     Column(modifier = modifier.fillMaxSize()) {
         AppToolbar(
@@ -82,19 +77,19 @@ fun SettingsScreen(
 
             SettingsSwitchCard(
                 title = "Floating widget",
-                subtitle = when {
-                    !adapterVerified -> "Available after a successful adapter connection"
-                    overlayPermissionGranted -> "Shows RPM, connection status, and coolant temperature"
-                    else -> "Overlay permission required to show RPM, connection, and coolant"
+                subtitle = if (overlayPermissionGranted) {
+                    "Shows RPM, connection status, and coolant temperature when monitoring is active"
+                } else {
+                    "Overlay permission required to show RPM, connection, and coolant"
                 },
-                checked = floatingWidgetEnabled && adapterVerified,
+                checked = floatingWidgetEnabled,
                 onCheckedChange = viewModel::setFloatingWidgetEnabled,
-                enabled = adapterVerified && overlayPermissionGranted,
+                enabled = overlayPermissionGranted,
             ) {
                 WidgetSizeSelector(
                     selectedSize = floatingWidgetSize,
                     onSelectSize = viewModel::setFloatingWidgetSize,
-                    enabled = floatingWidgetEnabled && adapterVerified && overlayPermissionGranted,
+                    enabled = floatingWidgetEnabled && overlayPermissionGranted,
                 )
                 OutlinedButton(
                     onClick = onRequestOverlayPermission,
