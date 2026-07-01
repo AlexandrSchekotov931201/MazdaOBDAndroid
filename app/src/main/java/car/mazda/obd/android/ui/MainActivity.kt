@@ -85,28 +85,38 @@ open class MainActivity : ComponentActivity() {
         setContent {
             MazdaOBDAndroidTheme {
                 var adapterEndpoint by remember {
-                    mutableStateOf(
-                        adapterConnectionPreferences.load()
-                            .takeIf { adapterConnectionPreferences.onboardingCompleted }
-                    )
+                    mutableStateOf(adapterConnectionPreferences.load())
+                }
+                var onboardingCompleted by remember {
+                    mutableStateOf(adapterConnectionPreferences.onboardingCompleted)
                 }
                 var pendingOnboardingEndpoint by remember { mutableStateOf<car.mazda.obd.android.core.elm.transport.AdapterEndpoint?>(null) }
                 val monitorState by ObdMonitorStateStore.state.collectAsStateWithLifecycle()
                 androidx.compose.runtime.LaunchedEffect(monitorState.connectionStatus, pendingOnboardingEndpoint) {
                     if (pendingOnboardingEndpoint != null && adapterConnectionPreferences.isVerified) {
                         adapterEndpoint = adapterConnectionPreferences.loadVerified()
+                        onboardingCompleted = true
                         pendingOnboardingEndpoint = null
                         requestWifiPermission()
                         requestNotificationPermission()
                     }
                 }
-                val configuredEndpoint = adapterEndpoint
-                if (configuredEndpoint == null) {
+                if (!onboardingCompleted) {
                     AdapterOnboardingScreen(
                         onSave = { endpoint ->
                             adapterConnectionPreferences.savePending(endpoint)
                             pendingOnboardingEndpoint = endpoint
                             ObdMonitorService.validateSavedEndpoint(applicationContext)
+                        },
+                        onSkip = {
+                            adapterConnectionPreferences.completeOnboardingOffline()
+                            onboardingCompleted = true
+                            ObdMonitorStateStore.update {
+                                it.copy(
+                                    connectionStatus = car.mazda.obd.android.feature.monitor.MonitorConnectionStatus.Offline,
+                                    connectionError = "Offline mode. Add adapter details in Settings to connect.",
+                                )
+                            }
                         },
                     )
                 } else {
@@ -190,7 +200,7 @@ open class MainActivity : ComponentActivity() {
                                 onRequestOverlayPermission = ::openOverlayPermissionSettings,
                                 locationPermissionGranted = locationPermissionCoordinator.permissionGranted,
                                 onSetRouteRecordingEnabled = ::setRouteRecordingEnabled,
-                                adapterEndpoint = configuredEndpoint,
+                                adapterEndpoint = adapterEndpoint,
                                 onSaveAdapterEndpoint = { endpoint ->
                                     adapterConnectionPreferences.savePending(endpoint)
                                     adapterEndpoint = endpoint
@@ -228,7 +238,7 @@ open class MainActivity : ComponentActivity() {
             routeSettingsViewModel.setRecordingEnabled(false)
         } else if (locationPermissionCoordinator.permissionGranted &&
             routeSettingsViewModel.recordingEnabled.value &&
-            adapterConnectionPreferences.load() != null
+            adapterConnectionPreferences.loadVerified() != null
         ) {
             ObdMonitorService.refreshRouteRecording(applicationContext)
         }

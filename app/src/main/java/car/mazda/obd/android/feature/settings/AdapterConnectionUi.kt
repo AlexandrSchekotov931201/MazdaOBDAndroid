@@ -9,6 +9,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 @Composable
 fun AdapterOnboardingScreen(
     onSave: (AdapterEndpoint) -> Unit,
+    onSkip: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val monitorState by ObdMonitorStateStore.state.collectAsStateWithLifecycle()
@@ -54,13 +56,25 @@ fun AdapterOnboardingScreen(
                 connectionStatus = monitorState.connectionStatus,
                 connectionError = monitorState.connectionError,
             )
+            Text(
+                text = "You can continue without an adapter. The app will work offline, and connection details can be added later in Settings.",
+                modifier = Modifier.padding(top = 20.dp),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            OutlinedButton(
+                onClick = onSkip,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                enabled = monitorState.connectionStatus != MonitorConnectionStatus.Connecting,
+            ) {
+                Text("Continue offline")
+            }
         }
     }
 }
 
 @Composable
 fun AdapterConnectionSettings(
-    endpoint: AdapterEndpoint,
+    endpoint: AdapterEndpoint?,
     onSave: (AdapterEndpoint) -> Unit,
     modifier: Modifier = Modifier,
 ) {

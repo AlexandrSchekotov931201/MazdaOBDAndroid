@@ -24,6 +24,7 @@ class MainViewModel(
     private val tripSummaryRepository: TripSummaryRepository,
 ) : ViewModel() {
     private val preferences = ObdMonitorPreferences(context)
+    private val adapterPreferences = AdapterConnectionPreferences(context)
 
     val connectionStatusState: StateFlow<MonitorConnectionStatus> = ObdMonitorStateStore.state
         .map { it.connectionStatus }
@@ -76,7 +77,7 @@ class MainViewModel(
                 continueAfterAppClosed = preferences.continueAfterAppClosed,
             )
         }
-        if (AdapterConnectionPreferences(context).loadVerified() != null) startMonitoring()
+        if (adapterPreferences.loadVerified() != null) startMonitoring()
         observeTripSummaryRefreshes()
         viewModelScope.launch {
             tripSummaryRepository.refreshRecentTrips()
@@ -84,7 +85,7 @@ class MainViewModel(
     }
 
     private fun startMonitoring() {
-        ObdMonitorService.start(context)
+        if (adapterPreferences.loadVerified() != null) ObdMonitorService.start(context)
     }
 
     fun setFloatingWidgetEnabled(enabled: Boolean) {
@@ -102,7 +103,7 @@ class MainViewModel(
         ObdMonitorStateStore.update { it.copy(continueAfterAppClosed = enabled) }
         // Re-deliver the start command so Android records the updated
         // START_STICKY/START_NOT_STICKY policy. The running monitor is not restarted.
-        ObdMonitorService.start(context)
+        if (adapterPreferences.loadVerified() != null) ObdMonitorService.start(context)
     }
 
     fun setFloatingWidgetSize(size: FloatingWidgetSize) {
@@ -110,9 +111,13 @@ class MainViewModel(
         ObdMonitorStateStore.update { it.copy(floatingWidgetSize = size) }
     }
 
-    fun startTrip() = ObdMonitorService.startTrip(context)
+    fun startTrip() {
+        if (adapterPreferences.loadVerified() != null) ObdMonitorService.startTrip(context)
+    }
 
-    fun stopTrip() = ObdMonitorService.stopTrip(context)
+    fun stopTrip() {
+        if (adapterPreferences.loadVerified() != null) ObdMonitorService.stopTrip(context)
+    }
 
     private fun observeTripSummaryRefreshes() {
         viewModelScope.launch {

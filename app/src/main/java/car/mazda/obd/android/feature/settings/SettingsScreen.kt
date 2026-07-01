@@ -36,7 +36,7 @@ fun SettingsScreen(
     onRequestOverlayPermission: () -> Unit,
     locationPermissionGranted: Boolean,
     onSetRouteRecordingEnabled: (Boolean) -> Unit,
-    adapterEndpoint: AdapterEndpoint,
+    adapterEndpoint: AdapterEndpoint?,
     onSaveAdapterEndpoint: (AdapterEndpoint) -> Unit,
     modifier: Modifier = Modifier,
 ) {

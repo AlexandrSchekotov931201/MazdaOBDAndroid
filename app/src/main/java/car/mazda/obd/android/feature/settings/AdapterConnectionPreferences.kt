@@ -41,6 +41,12 @@ class AdapterConnectionPreferences(context: Context) {
             .apply()
     }
 
+    fun completeOnboardingOffline() {
+        preferences.edit()
+            .putBoolean(KEY_ONBOARDING_COMPLETED, true)
+            .apply()
+    }
+
     private companion object {
         const val PREFERENCES_NAME = "adapter_connection_preferences"
         const val KEY_HOST = "host"
