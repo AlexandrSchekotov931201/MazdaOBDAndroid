@@ -26,6 +26,7 @@ import car.mazda.obd.android.feature.dashboard.MainViewModel
 import car.mazda.obd.android.feature.monitor.FloatingWidgetSize
 import car.mazda.obd.android.ui.AppToolbar
 import car.mazda.obd.android.feature.trip.route.TripRouteSettingsViewModel
+import car.mazda.obd.android.core.elm.transport.AdapterEndpoint
 
 @Composable
 fun SettingsScreen(
@@ -35,6 +36,8 @@ fun SettingsScreen(
     onRequestOverlayPermission: () -> Unit,
     locationPermissionGranted: Boolean,
     onSetRouteRecordingEnabled: (Boolean) -> Unit,
+    adapterEndpoint: AdapterEndpoint,
+    onSaveAdapterEndpoint: (AdapterEndpoint) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val overlayPermissionGranted by viewModel.overlayEnabledState.collectAsStateWithLifecycle()
@@ -56,6 +59,11 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            AdapterConnectionSettings(
+                endpoint = adapterEndpoint,
+                onSave = onSaveAdapterEndpoint,
+            )
+
             SettingsSwitchCard(
                 title = "Trip maps",
                 subtitle = when {

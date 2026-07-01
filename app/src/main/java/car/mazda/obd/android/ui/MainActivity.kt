@@ -17,6 +17,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -31,6 +32,8 @@ import car.mazda.obd.android.feature.logs.LogsScreen
 import car.mazda.obd.android.feature.monitor.ObdMonitorStateStore
 import car.mazda.obd.android.feature.monitor.ObdMonitorService
 import car.mazda.obd.android.feature.settings.SettingsScreen
+import car.mazda.obd.android.feature.settings.AdapterConnectionPreferences
+import car.mazda.obd.android.feature.settings.AdapterOnboardingScreen
 import car.mazda.obd.android.feature.trip.summary.TripsScreen
 import car.mazda.obd.android.feature.trip.route.TripRouteSettingsViewModel
 import car.mazda.obd.android.feature.trip.route.TripRouteSettingsViewModelFactory
@@ -43,6 +46,8 @@ import car.mazda.obd.android.ui.theme.MazdaOBDAndroidTheme
 import kotlinx.coroutines.launch
 
 open class MainActivity : ComponentActivity() {
+
+    private val adapterConnectionPreferences by lazy { AdapterConnectionPreferences(applicationContext) }
 
     private val viewModelFactory by lazy {
         MainViewModelFactory(applicationContext)
@@ -79,6 +84,20 @@ open class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             MazdaOBDAndroidTheme {
+                var adapterEndpoint by remember {
+                    mutableStateOf(adapterConnectionPreferences.load())
+                }
+                val configuredEndpoint = adapterEndpoint
+                if (configuredEndpoint == null) {
+                    AdapterOnboardingScreen(
+                        onSave = { endpoint ->
+                            adapterConnectionPreferences.save(endpoint)
+                            adapterEndpoint = endpoint
+                            requestWifiPermission()
+                            requestNotificationPermission()
+                        },
+                    )
+                } else {
                 val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
                 val scope = rememberCoroutineScope()
                 var screen by rememberSaveable { mutableStateOf("main") }
@@ -159,6 +178,11 @@ open class MainActivity : ComponentActivity() {
                                 onRequestOverlayPermission = ::openOverlayPermissionSettings,
                                 locationPermissionGranted = locationPermissionCoordinator.permissionGranted,
                                 onSetRouteRecordingEnabled = ::setRouteRecordingEnabled,
+                                adapterEndpoint = configuredEndpoint,
+                                onSaveAdapterEndpoint = { endpoint ->
+                                    adapterConnectionPreferences.save(endpoint)
+                                    adapterEndpoint = endpoint
+                                },
                             )
                         }
                     }
@@ -170,6 +194,7 @@ open class MainActivity : ComponentActivity() {
                         onDismiss = locationPermissionCoordinator::dismissSettingsPrompt,
                     )
                 }
+                }
             }
         }
     }
@@ -177,8 +202,10 @@ open class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         ObdMonitorStateStore.update { it.copy(isAppForeground = true) }
-        requestWifiPermission()
-        requestNotificationPermission()
+        if (adapterConnectionPreferences.load() != null) {
+            requestWifiPermission()
+            requestNotificationPermission()
+        }
     }
 
     override fun onResume() {
@@ -186,7 +213,10 @@ open class MainActivity : ComponentActivity() {
         locationPermissionCoordinator.onResume()
         if (!locationPermissionCoordinator.permissionGranted && routeSettingsViewModel.recordingEnabled.value) {
             routeSettingsViewModel.setRecordingEnabled(false)
-        } else if (locationPermissionCoordinator.permissionGranted && routeSettingsViewModel.recordingEnabled.value) {
+        } else if (locationPermissionCoordinator.permissionGranted &&
+            routeSettingsViewModel.recordingEnabled.value &&
+            adapterConnectionPreferences.load() != null
+        ) {
             ObdMonitorService.refreshRouteRecording(applicationContext)
         }
     }

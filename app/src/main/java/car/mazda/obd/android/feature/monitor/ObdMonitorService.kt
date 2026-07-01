@@ -29,6 +29,7 @@ import car.mazda.obd.android.core.telemetry.StandardPidCatalog
 import car.mazda.obd.android.core.telemetry.TelemetryMetric
 import car.mazda.obd.android.core.telemetry.TelemetryPollingEngine
 import car.mazda.obd.android.feature.location.AndroidLocationDataSource
+import car.mazda.obd.android.feature.settings.AdapterConnectionPreferences
 import car.mazda.obd.android.feature.trip.EngineRpmSample
 import car.mazda.obd.android.feature.trip.TripState
 import car.mazda.obd.android.feature.trip.TripStateManager
@@ -88,7 +89,10 @@ class ObdMonitorService : Service() {
         val connectivityManager = requireNotNull(getSystemService(ConnectivityManager::class.java)) {
             "ConnectivityManager is required for OBD Wi-Fi routing"
         }
-        client = OBDClient(WifiElmTransport(connectivityManager))
+        val endpoint = requireNotNull(AdapterConnectionPreferences(this).load()) {
+            "OBD adapter connection settings are required before monitoring starts"
+        }
+        client = OBDClient(WifiElmTransport(connectivityManager, endpoint))
         sessionManager = OBDSessionManager(
             client = client,
             scope = scope,

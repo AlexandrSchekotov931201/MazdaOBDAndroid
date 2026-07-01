@@ -4,15 +4,14 @@ Read-only ELM327-style simulator for developing the Android application without 
 
 ## Required Android build
 
-Use the `simDebug` build variant with this simulator:
+Use the standard `debug` build with this simulator:
 
 ```powershell
-.\gradlew.bat assembleSimDebug
+.\gradlew.bat assembleDebug
 ```
 
-The `sim` flavor connects to the simulator at `192.168.10.3:35000`. Do not use
-`prodDebug` for simulator testing because the production flavor targets the
-real Wi-Fi ELM adapter address.
+On the first app start, enter the simulator host address and port shown by the
+simulator. The same values can be changed later in the app settings.
 
 ## Run
 
