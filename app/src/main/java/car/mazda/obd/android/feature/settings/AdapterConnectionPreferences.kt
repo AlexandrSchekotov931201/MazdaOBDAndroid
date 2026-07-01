@@ -15,10 +15,29 @@ class AdapterConnectionPreferences(context: Context) {
         return AdapterEndpoint(host = host, port = port)
     }
 
-    fun save(endpoint: AdapterEndpoint) {
+    fun loadVerified(): AdapterEndpoint? = load()?.takeIf { isVerified }
+
+    val isVerified: Boolean
+        get() = preferences.getBoolean(KEY_VERIFIED, preferences.contains(KEY_HOST))
+
+    val onboardingCompleted: Boolean
+        get() = preferences.getBoolean(KEY_ONBOARDING_COMPLETED, preferences.contains(KEY_HOST))
+
+    fun savePending(endpoint: AdapterEndpoint) {
+        val completedBeforeThisChange = onboardingCompleted
         preferences.edit()
             .putString(KEY_HOST, endpoint.host)
             .putInt(KEY_PORT, endpoint.port)
+            .putBoolean(KEY_VERIFIED, false)
+            .putBoolean(KEY_ONBOARDING_COMPLETED, completedBeforeThisChange)
+            .apply()
+    }
+
+    fun markVerified(endpoint: AdapterEndpoint) {
+        if (load() != endpoint) return
+        preferences.edit()
+            .putBoolean(KEY_VERIFIED, true)
+            .putBoolean(KEY_ONBOARDING_COMPLETED, true)
             .apply()
     }
 
@@ -26,6 +45,8 @@ class AdapterConnectionPreferences(context: Context) {
         const val PREFERENCES_NAME = "adapter_connection_preferences"
         const val KEY_HOST = "host"
         const val KEY_PORT = "port"
+        const val KEY_VERIFIED = "verified"
+        const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
         const val INVALID_PORT = -1
         val VALID_PORTS = 1..65535
     }

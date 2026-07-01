@@ -5,6 +5,7 @@ import car.mazda.obd.android.feature.trip.summary.ActiveTripSummary
 data class ObdMonitorState(
     val isRunning: Boolean = false,
     val connectionStatus: MonitorConnectionStatus = MonitorConnectionStatus.Offline,
+    val connectionError: String? = null,
     val rpm: Int = 0,
     val coolantTemp: Int? = null,
     val warmupText: String = "Coolant temp: --",

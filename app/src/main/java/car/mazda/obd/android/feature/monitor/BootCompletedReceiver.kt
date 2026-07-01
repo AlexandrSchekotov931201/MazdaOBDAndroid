@@ -11,7 +11,7 @@ class BootCompletedReceiver : BroadcastReceiver() {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED &&
             preferences.autoStartEnabled &&
             preferences.continueAfterAppClosed &&
-            AdapterConnectionPreferences(context).load() != null
+            AdapterConnectionPreferences(context).loadVerified() != null
         ) {
             ObdMonitorService.start(context)
         }

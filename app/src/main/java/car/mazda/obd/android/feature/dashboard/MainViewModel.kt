@@ -11,6 +11,7 @@ import car.mazda.obd.android.feature.monitor.MonitorConnectionStatus
 import car.mazda.obd.android.feature.trip.summary.ActiveTripSummary
 import car.mazda.obd.android.feature.trip.summary.TripSummary
 import car.mazda.obd.android.feature.trip.summary.TripSummaryRepository
+import car.mazda.obd.android.feature.settings.AdapterConnectionPreferences
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -75,7 +76,7 @@ class MainViewModel(
                 continueAfterAppClosed = preferences.continueAfterAppClosed,
             )
         }
-        startMonitoring()
+        if (AdapterConnectionPreferences(context).loadVerified() != null) startMonitoring()
         observeTripSummaryRefreshes()
         viewModelScope.launch {
             tripSummaryRepository.refreshRecentTrips()

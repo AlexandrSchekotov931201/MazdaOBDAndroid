@@ -22,12 +22,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import car.mazda.obd.android.core.elm.transport.AdapterEndpoint
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import car.mazda.obd.android.feature.monitor.MonitorConnectionStatus
+import car.mazda.obd.android.feature.monitor.ObdMonitorStateStore
+import androidx.compose.ui.platform.LocalContext
 
 @Composable
 fun AdapterOnboardingScreen(
     onSave: (AdapterEndpoint) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val monitorState by ObdMonitorStateStore.state.collectAsStateWithLifecycle()
     Surface(modifier = modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -46,6 +51,8 @@ fun AdapterOnboardingScreen(
                 initialEndpoint = null,
                 buttonLabel = "Save and continue",
                 onSave = onSave,
+                connectionStatus = monitorState.connectionStatus,
+                connectionError = monitorState.connectionError,
             )
         }
     }
@@ -57,19 +64,25 @@ fun AdapterConnectionSettings(
     onSave: (AdapterEndpoint) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val monitorState by ObdMonitorStateStore.state.collectAsStateWithLifecycle()
+    val endpointVerified = AdapterConnectionPreferences(LocalContext.current).isVerified
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text("OBD adapter", style = MaterialTheme.typography.titleLarge)
         Text(
-            "Saving a new address immediately disconnects the current adapter and reconnects using the new values.",
+            "Saving replaces the current address and performs one connection check. Automatic reconnect is enabled after a successful check.",
             style = MaterialTheme.typography.bodyMedium,
         )
         AdapterConnectionForm(
             initialEndpoint = endpoint,
             buttonLabel = "Save adapter address",
             onSave = onSave,
+            connectionStatus = monitorState.connectionStatus,
+            connectionError = monitorState.connectionError ?: if (!endpointVerified) {
+                "Adapter address is not verified. Save it to try connecting."
+            } else null,
         )
     }
 }
@@ -79,6 +92,8 @@ private fun AdapterConnectionForm(
     initialEndpoint: AdapterEndpoint?,
     buttonLabel: String,
     onSave: (AdapterEndpoint) -> Unit,
+    connectionStatus: MonitorConnectionStatus,
+    connectionError: String?,
 ) {
     var host by remember { mutableStateOf(initialEndpoint?.host.orEmpty()) }
     var port by remember { mutableStateOf(initialEndpoint?.port?.toString().orEmpty()) }
@@ -91,29 +106,39 @@ private fun AdapterConnectionForm(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        val connecting = connectionStatus == MonitorConnectionStatus.Connecting
         OutlinedTextField(
             value = host,
-            onValueChange = { host = it; message = null },
+            onValueChange = { host = it; message = null; isError = false },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("IP address or host name") },
             placeholder = { Text("192.168.0.10") },
             singleLine = true,
             isError = isError,
+            enabled = !connecting,
         )
         OutlinedTextField(
             value = port,
-            onValueChange = { port = it.filter(Char::isDigit); message = null },
+            onValueChange = { port = it.filter(Char::isDigit); message = null; isError = false },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Port") },
             placeholder = { Text("35000") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             singleLine = true,
             isError = isError,
+            enabled = !connecting,
         )
-        message?.let {
+        val statusMessage = when {
+            message != null -> message
+            connecting -> "Connecting to adapter..."
+            connectionError != null -> connectionError
+            connectionStatus == MonitorConnectionStatus.Ready -> "Adapter connected"
+            else -> null
+        }
+        statusMessage?.let {
             Text(
                 text = it,
-                color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                color = if (isError || connectionError != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -122,7 +147,7 @@ private fun AdapterConnectionForm(
                 AdapterEndpointValidator.validate(host, port).fold(
                     onSuccess = {
                         onSave(it)
-                        message = "Adapter address saved"
+                        message = null
                         isError = false
                     },
                     onFailure = {
@@ -132,8 +157,9 @@ private fun AdapterConnectionForm(
                 )
             },
             modifier = Modifier.fillMaxWidth(),
+            enabled = !connecting,
         ) {
-            Text(buttonLabel)
+            Text(if (connecting) "Connecting..." else buttonLabel)
         }
     }
 }

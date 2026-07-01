@@ -85,16 +85,28 @@ open class MainActivity : ComponentActivity() {
         setContent {
             MazdaOBDAndroidTheme {
                 var adapterEndpoint by remember {
-                    mutableStateOf(adapterConnectionPreferences.load())
+                    mutableStateOf(
+                        adapterConnectionPreferences.load()
+                            .takeIf { adapterConnectionPreferences.onboardingCompleted }
+                    )
+                }
+                var pendingOnboardingEndpoint by remember { mutableStateOf<car.mazda.obd.android.core.elm.transport.AdapterEndpoint?>(null) }
+                val monitorState by ObdMonitorStateStore.state.collectAsStateWithLifecycle()
+                androidx.compose.runtime.LaunchedEffect(monitorState.connectionStatus, pendingOnboardingEndpoint) {
+                    if (pendingOnboardingEndpoint != null && adapterConnectionPreferences.isVerified) {
+                        adapterEndpoint = adapterConnectionPreferences.loadVerified()
+                        pendingOnboardingEndpoint = null
+                        requestWifiPermission()
+                        requestNotificationPermission()
+                    }
                 }
                 val configuredEndpoint = adapterEndpoint
                 if (configuredEndpoint == null) {
                     AdapterOnboardingScreen(
                         onSave = { endpoint ->
-                            adapterConnectionPreferences.save(endpoint)
-                            adapterEndpoint = endpoint
-                            requestWifiPermission()
-                            requestNotificationPermission()
+                            adapterConnectionPreferences.savePending(endpoint)
+                            pendingOnboardingEndpoint = endpoint
+                            ObdMonitorService.validateSavedEndpoint(applicationContext)
                         },
                     )
                 } else {
@@ -180,9 +192,9 @@ open class MainActivity : ComponentActivity() {
                                 onSetRouteRecordingEnabled = ::setRouteRecordingEnabled,
                                 adapterEndpoint = configuredEndpoint,
                                 onSaveAdapterEndpoint = { endpoint ->
-                                    adapterConnectionPreferences.save(endpoint)
+                                    adapterConnectionPreferences.savePending(endpoint)
                                     adapterEndpoint = endpoint
-                                    ObdMonitorService.reconnectWithSavedEndpoint(applicationContext)
+                                    ObdMonitorService.validateSavedEndpoint(applicationContext)
                                 },
                             )
                         }
@@ -203,7 +215,7 @@ open class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         ObdMonitorStateStore.update { it.copy(isAppForeground = true) }
-        if (adapterConnectionPreferences.load() != null) {
+        if (adapterConnectionPreferences.loadVerified() != null) {
             requestWifiPermission()
             requestNotificationPermission()
         }

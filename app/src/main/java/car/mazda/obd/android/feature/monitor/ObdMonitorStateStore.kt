@@ -21,6 +21,7 @@ object ObdMonitorStateStore {
                 autoStartEnabled = current.autoStartEnabled,
                 isAppForeground = current.isAppForeground,
                 tripSummaryVersion = current.tripSummaryVersion,
+                connectionError = current.connectionError,
             )
         }
     }
