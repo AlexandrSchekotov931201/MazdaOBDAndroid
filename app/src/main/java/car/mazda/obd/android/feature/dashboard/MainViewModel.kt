@@ -7,6 +7,7 @@ import car.mazda.obd.android.feature.monitor.FloatingWidgetSize
 import car.mazda.obd.android.feature.monitor.ObdMonitorPreferences
 import car.mazda.obd.android.feature.monitor.ObdMonitorService
 import car.mazda.obd.android.feature.monitor.ObdMonitorStateStore
+import car.mazda.obd.android.feature.monitor.MonitorConnectionStatus
 import car.mazda.obd.android.feature.trip.summary.ActiveTripSummary
 import car.mazda.obd.android.feature.trip.summary.TripSummary
 import car.mazda.obd.android.feature.trip.summary.TripSummaryRepository
@@ -23,9 +24,9 @@ class MainViewModel(
 ) : ViewModel() {
     private val preferences = ObdMonitorPreferences(context)
 
-    val connectionTextState: StateFlow<String> = ObdMonitorStateStore.state
-        .map { it.connectionText }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, ObdMonitorStateStore.state.value.connectionText)
+    val connectionStatusState: StateFlow<MonitorConnectionStatus> = ObdMonitorStateStore.state
+        .map { it.connectionStatus }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ObdMonitorStateStore.state.value.connectionStatus)
 
     val rpmState: StateFlow<Int> = ObdMonitorStateStore.state
         .map { it.rpm }
@@ -107,6 +108,10 @@ class MainViewModel(
         preferences.floatingWidgetSize = size
         ObdMonitorStateStore.update { it.copy(floatingWidgetSize = size) }
     }
+
+    fun startTrip() = ObdMonitorService.startTrip(context)
+
+    fun stopTrip() = ObdMonitorService.stopTrip(context)
 
     private fun observeTripSummaryRefreshes() {
         viewModelScope.launch {

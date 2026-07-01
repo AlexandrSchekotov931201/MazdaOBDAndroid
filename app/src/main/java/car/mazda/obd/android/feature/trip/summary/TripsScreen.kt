@@ -10,6 +10,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -56,16 +58,27 @@ fun TripsScreen(
         ) {
             item {
                 SectionTitle("Current trip")
-                if (activeTrip == null) EmptyState("No active trip")
-                else TripCard(
-                    title = "Running",
-                    subtitle = "Started ${activeTrip!!.startedAtMs.formatTime()}",
-                    durationMs = activeTrip!!.durationMs(nowMs),
-                    maxRpm = activeTrip!!.maxRpm,
-                    maxTemp = activeTrip!!.maxEngineTempCelsius,
-                    active = true,
-                    onClick = { onOpenTripRoute(activeTrip!!.startedAtMs) },
-                )
+                if (activeTrip == null) {
+                    EmptyState("No active trip. Start one when you are ready to record it.")
+                    Button(
+                        onClick = viewModel::startTrip,
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    ) { Text("Start trip") }
+                } else {
+                    TripCard(
+                        title = "Running",
+                        subtitle = "Started ${activeTrip!!.startedAtMs.formatTime()}",
+                        durationMs = activeTrip!!.durationMs(nowMs),
+                        maxRpm = activeTrip!!.maxRpm,
+                        maxTemp = activeTrip!!.maxEngineTempCelsius,
+                        active = true,
+                        onClick = { onOpenTripRoute(activeTrip!!.startedAtMs) },
+                    )
+                    OutlinedButton(
+                        onClick = viewModel::stopTrip,
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    ) { Text("Finish trip") }
+                }
             }
             item { SectionTitle("History") }
             if (recentTrips.isEmpty()) item { EmptyState("No completed trips yet") }

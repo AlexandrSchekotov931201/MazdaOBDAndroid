@@ -101,7 +101,7 @@ open class MainActivity : ComponentActivity() {
                 val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
                 val scope = rememberCoroutineScope()
                 var screen by rememberSaveable { mutableStateOf("main") }
-                val connectionText by viewModel.connectionTextState.collectAsStateWithLifecycle()
+                val connectionStatus by viewModel.connectionStatusState.collectAsStateWithLifecycle()
                 val activeTrip by viewModel.activeTripSummaryState.collectAsStateWithLifecycle()
                 val routeState by tripRouteViewModel.state.collectAsStateWithLifecycle()
                 val selectedDestination = when (screen) {
@@ -118,7 +118,7 @@ open class MainActivity : ComponentActivity() {
                     drawerContent = {
                         AppDrawer(
                             selectedDestination = selectedDestination,
-                            isReady = connectionText.contains("ready", ignoreCase = true),
+                            connectionStatus = connectionStatus,
                             onSelectDestination = { destination ->
                                 screen = when (destination) {
                                     AppDrawerDestination.Dashboard -> "main"

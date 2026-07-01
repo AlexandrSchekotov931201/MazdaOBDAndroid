@@ -88,7 +88,7 @@ class ObdOverlayView(context: Context) : View(context) {
         val textWidth = (textRight - textLeft).coerceAtLeast(0f)
         drawConnectionChip(
             canvas = canvas,
-            status = state.connectionText.toConnectionStatus(),
+            status = state.connectionStatus,
             left = textLeft,
             top = height * 0.22f,
             width = textWidth,
@@ -112,7 +112,7 @@ class ObdOverlayView(context: Context) : View(context) {
 
     private fun drawConnectionChip(
         canvas: Canvas,
-        status: ConnectionStatus,
+        status: MonitorConnectionStatus,
         left: Float,
         top: Float,
         width: Float,
@@ -129,7 +129,7 @@ class ObdOverlayView(context: Context) : View(context) {
         val dotRadius = height * 0.13f
         val dotCenterX = left + height * 0.40f
         val dotCenterY = top + height * 0.50f
-        badgePaint.color = status.color
+        badgePaint.color = status.indicatorColor()
         canvas.drawCircle(dotCenterX, dotCenterY, dotRadius, badgePaint)
 
         labelPaint.textAlign = Paint.Align.LEFT
@@ -230,25 +230,11 @@ class ObdOverlayView(context: Context) : View(context) {
             )
         }
 
-    private fun String.toConnectionStatus(): ConnectionStatus =
-        if (contains("ready", ignoreCase = true)) {
-            ConnectionStatus.Ready
-        } else {
-            ConnectionStatus.Offline
-        }
-
-    private enum class ConnectionStatus(
-        val label: String,
-        val color: Int,
-    ) {
-        Ready(
-            label = "Ready",
-            color = Color.rgb(46, 125, 50),
-        ),
-        Offline(
-            label = "Offline",
-            color = Color.rgb(198, 40, 40),
-        )
+    private fun MonitorConnectionStatus.indicatorColor(): Int = when (this) {
+        MonitorConnectionStatus.Ready -> Color.rgb(46, 125, 50)
+        MonitorConnectionStatus.Connecting -> Color.rgb(21, 101, 192)
+        MonitorConnectionStatus.Reconnecting -> Color.rgb(239, 108, 0)
+        MonitorConnectionStatus.Offline -> Color.rgb(198, 40, 40)
     }
 
     private data class StatusColors(
