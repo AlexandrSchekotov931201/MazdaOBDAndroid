@@ -10,6 +10,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import car.mazda.obd.android.feature.dashboard.MainViewModel
+import car.mazda.obd.android.feature.monitor.MonitorConnectionStatus
 import car.mazda.obd.android.ui.AppToolbar
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -39,6 +42,7 @@ fun TripsScreen(
 ) {
     val activeTrip by viewModel.activeTripSummaryState.collectAsStateWithLifecycle()
     val recentTrips by viewModel.recentTripSummariesState.collectAsStateWithLifecycle()
+    val connectionStatus by viewModel.connectionStatusState.collectAsStateWithLifecycle()
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
 
     LaunchedEffect(activeTrip?.startedAtMs) {
@@ -56,16 +60,34 @@ fun TripsScreen(
         ) {
             item {
                 SectionTitle("Current trip")
-                if (activeTrip == null) EmptyState("No active trip")
-                else TripCard(
-                    title = "Running",
-                    subtitle = "Started ${activeTrip!!.startedAtMs.formatTime()}",
-                    durationMs = activeTrip!!.durationMs(nowMs),
-                    maxRpm = activeTrip!!.maxRpm,
-                    maxTemp = activeTrip!!.maxEngineTempCelsius,
-                    active = true,
-                    onClick = { onOpenTripRoute(activeTrip!!.startedAtMs) },
-                )
+                if (activeTrip == null) {
+                    EmptyState(
+                        if (connectionStatus == MonitorConnectionStatus.Offline) {
+                            "Offline mode. Connect an adapter in Settings before starting a trip."
+                        } else {
+                            "No active trip. Start one when you are ready to record it."
+                        }
+                    )
+                    Button(
+                        onClick = viewModel::startTrip,
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        enabled = connectionStatus != MonitorConnectionStatus.Offline,
+                    ) { Text("Start trip") }
+                } else {
+                    TripCard(
+                        title = "Running",
+                        subtitle = "Started ${activeTrip!!.startedAtMs.formatTime()}",
+                        durationMs = activeTrip!!.durationMs(nowMs),
+                        maxRpm = activeTrip!!.maxRpm,
+                        maxTemp = activeTrip!!.maxEngineTempCelsius,
+                        active = true,
+                        onClick = { onOpenTripRoute(activeTrip!!.startedAtMs) },
+                    )
+                    OutlinedButton(
+                        onClick = viewModel::stopTrip,
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    ) { Text("Finish trip") }
+                }
             }
             item { SectionTitle("History") }
             if (recentTrips.isEmpty()) item { EmptyState("No completed trips yet") }

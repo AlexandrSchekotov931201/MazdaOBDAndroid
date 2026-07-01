@@ -25,6 +25,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import car.mazda.obd.android.feature.dashboard.MainViewModel
+import car.mazda.obd.android.feature.monitor.MonitorConnectionStatus
 import car.mazda.obd.android.feature.warmup.EngineWarmupGuidance
 import car.mazda.obd.android.feature.warmup.EngineWarmupStage
 import car.mazda.obd.android.ui.AppToolbar
@@ -35,13 +36,13 @@ internal fun MainScreen(
     onOpenMenu: () -> Unit,
     modifier: Modifier
 ) {
-    val connectionTextState by viewModel.connectionTextState.collectAsStateWithLifecycle()
+    val connectionStatus by viewModel.connectionStatusState.collectAsStateWithLifecycle()
     val rpmState by viewModel.rpmState.collectAsStateWithLifecycle()
     val coolantTempState by viewModel.coolantTempState.collectAsStateWithLifecycle()
     val warmupTextState by viewModel.warmupTextState.collectAsStateWithLifecycle()
 
     MainContent(
-        connectionText = connectionTextState,
+        connectionStatus = connectionStatus,
         rpm = rpmState,
         coolantTemp = coolantTempState,
         warmupText = warmupTextState,
@@ -52,20 +53,19 @@ internal fun MainScreen(
 
 @Composable
 private fun MainContent(
-    connectionText: String,
+    connectionStatus: MonitorConnectionStatus,
     rpm: Int,
     coolantTemp: Int?,
     warmupText: String,
     onOpenMenu: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val connectionStatus = connectionText.toConnectionStatus()
-    val engineStatus = if (connectionStatus == ConnectionStatus.Ready) {
+    val engineStatus = if (connectionStatus == MonitorConnectionStatus.Ready) {
         coolantTemp.toEngineStatus()
     } else {
         EngineStatus.NoData
     }
-    val engineText = if (connectionStatus == ConnectionStatus.Ready) {
+    val engineText = if (connectionStatus == MonitorConnectionStatus.Ready) {
         warmupText
     } else {
         "Coolant temp: --"
@@ -105,7 +105,7 @@ private fun MainContent(
                 MazdaStyleTachometer(
                     modifier = Modifier
                         .fillMaxSize()
-                        .alpha(if (connectionStatus == ConnectionStatus.Ready) 1f else 0.42f),
+                        .alpha(if (connectionStatus == MonitorConnectionStatus.Ready) 1f else 0.42f),
                     rpm = rpm,
                 )
             }
@@ -114,12 +114,12 @@ private fun MainContent(
 }
 
 @Composable
-private fun ConnectionIndicator(status: ConnectionStatus) {
+private fun ConnectionIndicator(status: MonitorConnectionStatus) {
     AssistChip(
         onClick = {},
         label = {
             Text(
-                text = status.shortLabel,
+                text = status.label,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -128,7 +128,7 @@ private fun ConnectionIndicator(status: ConnectionStatus) {
             Surface(
                 modifier = Modifier.size(10.dp),
                 shape = CircleShape,
-                color = status.color,
+                color = status.indicatorColor(),
                 content = {}
             )
         },
@@ -170,18 +170,11 @@ private fun EngineStatusBanner(
     }
 }
 
-private enum class ConnectionStatus(
-    val shortLabel: String,
-    val color: Color
-) {
-    Ready(
-        shortLabel = "Ready",
-        color = Color(0xFF2E7D32)
-    ),
-    Error(
-        shortLabel = "Offline",
-        color = Color(0xFFC62828)
-    )
+private fun MonitorConnectionStatus.indicatorColor(): Color = when (this) {
+    MonitorConnectionStatus.Ready -> Color(0xFF2E7D32)
+    MonitorConnectionStatus.Connecting -> Color(0xFF1565C0)
+    MonitorConnectionStatus.Reconnecting -> Color(0xFFEF6C00)
+    MonitorConnectionStatus.Offline -> Color(0xFFC62828)
 }
 
 private enum class EngineStatus(
@@ -215,12 +208,6 @@ private enum class EngineStatus(
         contentColor = Color(0xFFB71C1C)
     )
 }
-
-private fun String.toConnectionStatus(): ConnectionStatus =
-    when {
-        contains("ready", ignoreCase = true) -> ConnectionStatus.Ready
-        else -> ConnectionStatus.Error
-    }
 
 private fun Int?.toEngineStatus(): EngineStatus =
     when (this?.let(EngineWarmupGuidance::stageFor)) {

@@ -39,14 +39,14 @@ class OBDSessionManager(
     private var capabilityDiscoveryAttempted = false
     private var reconnectsWithoutValidData = 0
 
-    suspend fun startSession() {
+    suspend fun startSession(reconnecting: Boolean = false) {
         try {
             AppLogger.log("Connecting to OBD adapter")
-            _sessionState.value = OBDSessionState.ConnectingSocket
+            _sessionState.value = if (reconnecting) OBDSessionState.Reconnecting else OBDSessionState.ConnectingSocket
             client.connect()
 
             AppLogger.log("Initializing ECU")
-            _sessionState.value = OBDSessionState.InitializingEcu
+            if (!reconnecting) _sessionState.value = OBDSessionState.InitializingEcu
             client.initializingEcu()
 
             if (!capabilityDiscoveryAttempted) {
@@ -63,14 +63,18 @@ class OBDSessionManager(
             if (t is CancellationException) throw t
             AppLogger.log("startSession error: ${t::class.simpleName}: ${t.message}")
             client.release()
-            _sessionState.value = OBDSessionState.Error(t)
+            _sessionState.value = if (reconnecting && t.isReconnectable()) {
+                OBDSessionState.Reconnecting
+            } else {
+                OBDSessionState.Error(t)
+            }
             throw t
         }
     }
 
-    suspend fun connectUntilReady() {
+    suspend fun connectUntilReady(reconnecting: Boolean = false) {
         while (coroutineContext.isActive && _sessionState.value !is OBDSessionState.Ready) {
-            val error = runCatching { startSession() }.exceptionOrNull()
+            val error = runCatching { startSession(reconnecting) }.exceptionOrNull()
             if (error == null) return
             if (error is CancellationException) throw error
             if (!error.isReconnectable()) return
@@ -93,7 +97,7 @@ class OBDSessionManager(
             capabilityDiscoveryAttempted = false
             reconnectsWithoutValidData = 0
         }
-        _sessionState.value = OBDSessionState.Idle
+        if (cancelReconnect) _sessionState.value = OBDSessionState.Idle
     }
 
     fun requestReconnect(t: Throwable) {
@@ -103,7 +107,7 @@ class OBDSessionManager(
         synchronized(reconnectLock) {
             if (reconnectJob?.isActive == true) return
 
-            _sessionState.value = OBDSessionState.Error(t)
+            _sessionState.value = OBDSessionState.Reconnecting
             reconnectsWithoutValidData++
             if (reconnectsWithoutValidData >= FAILURES_BEFORE_REDISCOVERY) {
                 AppLogger.log("Invalidating cached OBD-II capabilities after repeated reconnects without valid data")
@@ -130,7 +134,7 @@ class OBDSessionManager(
             while (coroutineContext.isActive) {
                 stopSession(cancelReconnect = false)
 
-                val result = runCatching { startSession() }
+                val result = runCatching { startSession(reconnecting = true) }
                 if (result.isSuccess) {
                     AppLogger.log("Reconnect success")
                     return

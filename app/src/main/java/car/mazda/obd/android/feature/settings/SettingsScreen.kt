@@ -26,6 +26,7 @@ import car.mazda.obd.android.feature.dashboard.MainViewModel
 import car.mazda.obd.android.feature.monitor.FloatingWidgetSize
 import car.mazda.obd.android.ui.AppToolbar
 import car.mazda.obd.android.feature.trip.route.TripRouteSettingsViewModel
+import car.mazda.obd.android.core.elm.transport.AdapterEndpoint
 
 @Composable
 fun SettingsScreen(
@@ -35,12 +36,13 @@ fun SettingsScreen(
     onRequestOverlayPermission: () -> Unit,
     locationPermissionGranted: Boolean,
     onSetRouteRecordingEnabled: (Boolean) -> Unit,
+    adapterEndpoint: AdapterEndpoint?,
+    onSaveAdapterEndpoint: (AdapterEndpoint) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val overlayPermissionGranted by viewModel.overlayEnabledState.collectAsStateWithLifecycle()
     val floatingWidgetEnabled by viewModel.floatingWidgetEnabledState.collectAsStateWithLifecycle()
     val floatingWidgetSize by viewModel.floatingWidgetSizeState.collectAsStateWithLifecycle()
-    val autoStartEnabled by viewModel.autoStartEnabledState.collectAsStateWithLifecycle()
     val continueAfterAppClosed by viewModel.continueAfterAppClosedState.collectAsStateWithLifecycle()
     val routeRecordingEnabled by routeSettingsViewModel.recordingEnabled.collectAsStateWithLifecycle()
 
@@ -56,6 +58,11 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            AdapterConnectionSettings(
+                endpoint = adapterEndpoint,
+                onSave = onSaveAdapterEndpoint,
+            )
+
             SettingsSwitchCard(
                 title = "Trip maps",
                 subtitle = when {
@@ -70,7 +77,7 @@ fun SettingsScreen(
             SettingsSwitchCard(
                 title = "Floating widget",
                 subtitle = if (overlayPermissionGranted) {
-                    "Shows RPM, connection status, and coolant temperature"
+                    "Shows RPM, connection status, and coolant temperature when monitoring is active"
                 } else {
                     "Overlay permission required to show RPM, connection, and coolant"
                 },
@@ -100,18 +107,6 @@ fun SettingsScreen(
                 },
                 checked = continueAfterAppClosed,
                 onCheckedChange = viewModel::setContinueAfterAppClosed,
-            )
-
-            SettingsSwitchCard(
-                title = "Start after phone boot",
-                subtitle = if (continueAfterAppClosed) {
-                    if (autoStartEnabled) "Enabled" else "Disabled"
-                } else {
-                    "Requires background operation after app close"
-                },
-                checked = autoStartEnabled,
-                onCheckedChange = viewModel::setAutoStartEnabled,
-                enabled = continueAfterAppClosed,
             )
 
         }

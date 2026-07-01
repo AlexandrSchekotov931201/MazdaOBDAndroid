@@ -17,6 +17,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -31,6 +32,8 @@ import car.mazda.obd.android.feature.logs.LogsScreen
 import car.mazda.obd.android.feature.monitor.ObdMonitorStateStore
 import car.mazda.obd.android.feature.monitor.ObdMonitorService
 import car.mazda.obd.android.feature.settings.SettingsScreen
+import car.mazda.obd.android.feature.settings.AdapterConnectionPreferences
+import car.mazda.obd.android.feature.settings.AdapterOnboardingScreen
 import car.mazda.obd.android.feature.trip.summary.TripsScreen
 import car.mazda.obd.android.feature.trip.route.TripRouteSettingsViewModel
 import car.mazda.obd.android.feature.trip.route.TripRouteSettingsViewModelFactory
@@ -43,6 +46,8 @@ import car.mazda.obd.android.ui.theme.MazdaOBDAndroidTheme
 import kotlinx.coroutines.launch
 
 open class MainActivity : ComponentActivity() {
+
+    private val adapterConnectionPreferences by lazy { AdapterConnectionPreferences(applicationContext) }
 
     private val viewModelFactory by lazy {
         MainViewModelFactory(applicationContext)
@@ -79,10 +84,46 @@ open class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             MazdaOBDAndroidTheme {
+                var adapterEndpoint by remember {
+                    mutableStateOf(adapterConnectionPreferences.load())
+                }
+                var onboardingCompleted by remember {
+                    mutableStateOf(adapterConnectionPreferences.onboardingCompleted)
+                }
+                var pendingOnboardingEndpoint by remember { mutableStateOf<car.mazda.obd.android.core.elm.transport.AdapterEndpoint?>(null) }
+                val monitorState by ObdMonitorStateStore.state.collectAsStateWithLifecycle()
+                androidx.compose.runtime.LaunchedEffect(monitorState.connectionStatus, pendingOnboardingEndpoint) {
+                    if (pendingOnboardingEndpoint != null && adapterConnectionPreferences.isVerified) {
+                        adapterEndpoint = adapterConnectionPreferences.loadVerified()
+                        onboardingCompleted = true
+                        pendingOnboardingEndpoint = null
+                        requestWifiPermission()
+                        requestNotificationPermission()
+                    }
+                }
+                if (!onboardingCompleted) {
+                    AdapterOnboardingScreen(
+                        onSave = { endpoint ->
+                            adapterConnectionPreferences.savePending(endpoint)
+                            pendingOnboardingEndpoint = endpoint
+                            ObdMonitorService.validateSavedEndpoint(applicationContext)
+                        },
+                        onSkip = {
+                            adapterConnectionPreferences.completeOnboardingOffline()
+                            onboardingCompleted = true
+                            ObdMonitorStateStore.update {
+                                it.copy(
+                                    connectionStatus = car.mazda.obd.android.feature.monitor.MonitorConnectionStatus.Offline,
+                                    connectionError = "Offline mode. Add adapter details in Settings to connect.",
+                                )
+                            }
+                        },
+                    )
+                } else {
                 val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
                 val scope = rememberCoroutineScope()
                 var screen by rememberSaveable { mutableStateOf("main") }
-                val connectionText by viewModel.connectionTextState.collectAsStateWithLifecycle()
+                val connectionStatus by viewModel.connectionStatusState.collectAsStateWithLifecycle()
                 val activeTrip by viewModel.activeTripSummaryState.collectAsStateWithLifecycle()
                 val routeState by tripRouteViewModel.state.collectAsStateWithLifecycle()
                 val selectedDestination = when (screen) {
@@ -99,7 +140,7 @@ open class MainActivity : ComponentActivity() {
                     drawerContent = {
                         AppDrawer(
                             selectedDestination = selectedDestination,
-                            isReady = connectionText.contains("ready", ignoreCase = true),
+                            connectionStatus = connectionStatus,
                             onSelectDestination = { destination ->
                                 screen = when (destination) {
                                     AppDrawerDestination.Dashboard -> "main"
@@ -159,6 +200,12 @@ open class MainActivity : ComponentActivity() {
                                 onRequestOverlayPermission = ::openOverlayPermissionSettings,
                                 locationPermissionGranted = locationPermissionCoordinator.permissionGranted,
                                 onSetRouteRecordingEnabled = ::setRouteRecordingEnabled,
+                                adapterEndpoint = adapterEndpoint,
+                                onSaveAdapterEndpoint = { endpoint ->
+                                    adapterConnectionPreferences.savePending(endpoint)
+                                    adapterEndpoint = endpoint
+                                    ObdMonitorService.validateSavedEndpoint(applicationContext)
+                                },
                             )
                         }
                     }
@@ -170,6 +217,7 @@ open class MainActivity : ComponentActivity() {
                         onDismiss = locationPermissionCoordinator::dismissSettingsPrompt,
                     )
                 }
+                }
             }
         }
     }
@@ -177,16 +225,24 @@ open class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         ObdMonitorStateStore.update { it.copy(isAppForeground = true) }
-        requestWifiPermission()
-        requestNotificationPermission()
+        if (adapterConnectionPreferences.loadVerified() != null) {
+            requestWifiPermission()
+            requestNotificationPermission()
+        }
     }
 
     override fun onResume() {
         super.onResume()
+        ObdMonitorStateStore.update {
+            it.copy(overlayEnabled = Settings.canDrawOverlays(this))
+        }
         locationPermissionCoordinator.onResume()
         if (!locationPermissionCoordinator.permissionGranted && routeSettingsViewModel.recordingEnabled.value) {
             routeSettingsViewModel.setRecordingEnabled(false)
-        } else if (locationPermissionCoordinator.permissionGranted && routeSettingsViewModel.recordingEnabled.value) {
+        } else if (locationPermissionCoordinator.permissionGranted &&
+            routeSettingsViewModel.recordingEnabled.value &&
+            adapterConnectionPreferences.loadVerified() != null
+        ) {
             ObdMonitorService.refreshRouteRecording(applicationContext)
         }
     }

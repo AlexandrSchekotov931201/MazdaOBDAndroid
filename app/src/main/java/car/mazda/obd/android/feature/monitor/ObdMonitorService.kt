@@ -20,15 +20,16 @@ import car.mazda.obd.android.R
 import car.mazda.obd.android.core.elm.OBDClient
 import car.mazda.obd.android.core.elm.OBDSessionManager
 import car.mazda.obd.android.core.elm.OBDSessionState
+import car.mazda.obd.android.core.elm.transport.AdapterEndpoint
 import car.mazda.obd.android.core.elm.transport.WifiElmTransport
 import car.mazda.obd.android.core.logs.AppLogger
 import car.mazda.obd.android.core.sound.SoundPatterns
 import car.mazda.obd.android.core.sound.SoundPlayer
-import car.mazda.obd.android.core.sound.SpeechPlayer
 import car.mazda.obd.android.core.telemetry.StandardPidCatalog
 import car.mazda.obd.android.core.telemetry.TelemetryMetric
 import car.mazda.obd.android.core.telemetry.TelemetryPollingEngine
 import car.mazda.obd.android.feature.location.AndroidLocationDataSource
+import car.mazda.obd.android.feature.settings.AdapterConnectionPreferences
 import car.mazda.obd.android.feature.trip.EngineRpmSample
 import car.mazda.obd.android.feature.trip.TripState
 import car.mazda.obd.android.feature.trip.TripStateManager
@@ -49,6 +50,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -60,7 +62,7 @@ class ObdMonitorService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val pollingTargets = StandardPidCatalog.Default
     private val responseMapper = TelemetryResponseMapper()
-    private val tripStateManager = TripStateManager(scope)
+    private val tripStateManager = TripStateManager()
     private val warmupWarningManager = WarmupWarningManager()
     private val tripSummaryTracker = TripSummaryTracker()
     private val soundPlayer = SoundPlayer()
@@ -68,7 +70,6 @@ class ObdMonitorService : Service() {
     private lateinit var client: OBDClient
     private lateinit var sessionManager: OBDSessionManager
     private lateinit var pollingEngine: TelemetryPollingEngine
-    private lateinit var speechPlayer: SpeechPlayer
     private lateinit var tripSummaryRepository: TripSummaryRepository
     private lateinit var notificationManager: NotificationManager
     private lateinit var overlayController: ObdOverlayController
@@ -82,20 +83,12 @@ class ObdMonitorService : Service() {
     private var latestCoolantTemp: Int? = null
     private var monitorJob: Job? = null
     private var notificationJob: Job? = null
+    private var endpointReconnectJob: Job? = null
+    private var nextConnectionIsReconnect = false
 
     override fun onCreate() {
         super.onCreate()
-        val connectivityManager = requireNotNull(getSystemService(ConnectivityManager::class.java)) {
-            "ConnectivityManager is required for OBD Wi-Fi routing"
-        }
-        client = OBDClient(WifiElmTransport(connectivityManager))
-        sessionManager = OBDSessionManager(
-            client = client,
-            scope = scope,
-            requiredPids = pollingTargets.mapTo(mutableSetOf()) { it.request.pidCode },
-        )
-        pollingEngine = TelemetryPollingEngine(client = client, sessionManager = sessionManager)
-        speechPlayer = SpeechPlayer(applicationContext)
+        createObdConnectionStack()
         tripSummaryRepository = TripSummaryRepository(applicationContext)
         notificationManager = getSystemService(NotificationManager::class.java)
         overlayController = ObdOverlayController(applicationContext)
@@ -115,7 +108,6 @@ class ObdMonitorService : Service() {
             it.copy(
                 floatingWidgetEnabled = preferences.floatingWidgetEnabled,
                 floatingWidgetSize = preferences.floatingWidgetSize,
-                autoStartEnabled = preferences.autoStartEnabled,
                 continueAfterAppClosed = preferences.continueAfterAppClosed,
             )
         }
@@ -128,7 +120,22 @@ class ObdMonitorService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_REFRESH_ROUTE_RECORDING -> refreshRouteRecording()
-            else -> startMonitoring()
+            ACTION_VALIDATE_SAVED_ENDPOINT -> validateSavedEndpoint()
+            ACTION_START_TRIP -> startTrip()
+            ACTION_STOP_TRIP -> stopTrip()
+            else -> {
+                if (AdapterConnectionPreferences(this).loadVerified() != null) {
+                    nextConnectionIsReconnect = true
+                    startMonitoring()
+                } else {
+                    ObdMonitorStateStore.update {
+                        it.copy(
+                            connectionStatus = MonitorConnectionStatus.Offline,
+                            connectionError = "Adapter address has not been verified",
+                        )
+                    }
+                }
+            }
         }
         return if (preferences.continueAfterAppClosed) START_STICKY else START_NOT_STICKY
     }
@@ -146,12 +153,12 @@ class ObdMonitorService : Service() {
     override fun onDestroy() {
         monitorJob?.cancel()
         notificationJob?.cancel()
+        endpointReconnectJob?.cancel()
         routeRecorder.stop()
         runBlocking(Dispatchers.IO + NonCancellable) {
             sessionManager.stopSession()
         }
         overlayController.hide()
-        speechPlayer.stop()
         soundPlayer.release()
         scope.cancel()
         ObdMonitorStateStore.stop()
@@ -159,11 +166,17 @@ class ObdMonitorService : Service() {
         super.onDestroy()
     }
 
-    private fun startMonitoring() {
+    private fun startMonitoring(connectSession: Boolean = true) {
         if (monitorJob?.isActive == true) return
 
         ObdMonitorStateStore.update {
-            it.copy(isRunning = true, connectionText = "Connecting to adapter...")
+            it.copy(
+                isRunning = true,
+                connectionStatus = if (!connectSession) MonitorConnectionStatus.Ready
+                    else if (nextConnectionIsReconnect) MonitorConnectionStatus.Reconnecting
+                    else MonitorConnectionStatus.Connecting,
+                connectionError = null,
+            )
         }
         startAsForeground(includeLocation = false)
 
@@ -171,45 +184,107 @@ class ObdMonitorService : Service() {
             launch { observeSessionState() }
             launch { observeTelemetryState() }
             launch { observeTripState() }
-            launch { connectInitialSession() }
+            if (connectSession) launch { connectInitialSession() }
         }
 
-        notificationJob = scope.launch {
-            ObdMonitorStateStore.state.collect { state ->
-                notificationManager.notify(NOTIFICATION_ID, buildNotification(state))
-                overlayController.update(state)
-                ObdStatusWidgetProvider.updateAll(applicationContext)
+        if (notificationJob?.isActive != true) {
+            notificationJob = scope.launch {
+                ObdMonitorStateStore.state.collect { state ->
+                    notificationManager.notify(NOTIFICATION_ID, buildNotification(state))
+                    overlayController.update(state)
+                    ObdStatusWidgetProvider.updateAll(applicationContext)
+                }
             }
         }
+    }
+
+    private fun validateSavedEndpoint() {
+        if (endpointReconnectJob?.isActive == true) return
+        startAsForeground(includeLocation = false)
+        endpointReconnectJob = scope.launch {
+            val endpoint = requireNotNull(AdapterConnectionPreferences(this@ObdMonitorService).load())
+            AppLogger.log("Validating updated OBD adapter endpoint")
+            ObdMonitorStateStore.update {
+                it.copy(
+                    connectionStatus = MonitorConnectionStatus.Connecting,
+                    connectionError = null,
+                )
+            }
+            monitorJob?.cancelAndJoin()
+            sessionManager.stopSession()
+            createObdConnectionStack(endpoint)
+            runCatching { sessionManager.startSession() }
+                .onSuccess {
+                    AdapterConnectionPreferences(this@ObdMonitorService).markVerified(endpoint)
+                    startMonitoring(connectSession = false)
+                }
+                .onFailure { error ->
+                    sessionManager.stopSession()
+                    ObdMonitorStateStore.update {
+                        it.copy(
+                            isRunning = false,
+                            connectionStatus = MonitorConnectionStatus.Offline,
+                            connectionError = error.message ?: "Could not connect to the adapter",
+                        )
+                    }
+                    ServiceCompat.stopForeground(
+                        this@ObdMonitorService,
+                        ServiceCompat.STOP_FOREGROUND_REMOVE,
+                    )
+                    stopSelf()
+                }
+        }
+    }
+
+    private fun createObdConnectionStack(
+        endpoint: AdapterEndpoint =
+            requireNotNull(AdapterConnectionPreferences(this).load()),
+    ) {
+        val connectivityManager = requireNotNull(getSystemService(ConnectivityManager::class.java)) {
+            "ConnectivityManager is required for OBD Wi-Fi routing"
+        }
+        client = OBDClient(WifiElmTransport(connectivityManager, endpoint))
+        sessionManager = OBDSessionManager(
+            client = client,
+            scope = scope,
+            requiredPids = pollingTargets.mapTo(mutableSetOf()) { it.request.pidCode },
+        )
+        pollingEngine = TelemetryPollingEngine(client = client, sessionManager = sessionManager)
     }
 
     private suspend fun observeSessionState() {
         sessionManager.sessionState
             .map { state ->
                 when (state) {
-                    is OBDSessionState.Idle,
-                    is OBDSessionState.ConnectingSocket -> "Connecting to socket..."
-                    is OBDSessionState.InitializingEcu -> "Initializing ECU..."
-                    is OBDSessionState.Ready -> "Ready"
-                    is OBDSessionState.Error -> {
-                        "Connection error: ${state.throwable.message ?: state.throwable.toString()}"
-                    }
+                    is OBDSessionState.Idle -> MonitorConnectionStatus.Offline
+                    is OBDSessionState.ConnectingSocket,
+                    is OBDSessionState.InitializingEcu -> MonitorConnectionStatus.Connecting
+                    is OBDSessionState.Reconnecting -> MonitorConnectionStatus.Reconnecting
+                    is OBDSessionState.Ready -> MonitorConnectionStatus.Ready
+                    is OBDSessionState.Error -> MonitorConnectionStatus.Offline
                 }
             }
             .distinctUntilChanged()
-            .collect { connectionText ->
-                ObdMonitorStateStore.update { it.copy(connectionText = connectionText) }
+            .collect { connectionStatus ->
+                ObdMonitorStateStore.update {
+                    it.copy(
+                        connectionStatus = connectionStatus,
+                        connectionError = if (connectionStatus == MonitorConnectionStatus.Offline) {
+                            (sessionManager.sessionState.value as? OBDSessionState.Error)?.throwable?.message
+                        } else null,
+                    )
+                }
             }
     }
 
     private suspend fun connectInitialSession() {
         tripSummaryRepository.refreshRecentTrips()
-        sessionManager.connectUntilReady()
+        val reconnecting = nextConnectionIsReconnect
+        nextConnectionIsReconnect = false
+        sessionManager.connectUntilReady(reconnecting = reconnecting)
     }
 
     private suspend fun observeTripState() {
-        var previousState: TripState = TripState.Idle
-
         tripStateManager.tripState.collect { state ->
             tripSummaryTracker.onTripStateChanged(state)?.let { summary ->
                 tripSummaryRepository.saveTrip(summary)
@@ -224,22 +299,6 @@ class ObdMonitorService : Service() {
                 routeRecorder.stop()
             }
 
-            when (state) {
-                is TripState.Active -> {
-                    if (previousState is TripState.Idle) {
-                        AppLogger.log("Play greeting sound")
-                        speechPlayer.greetingSound()
-                    }
-                }
-                is TripState.Idle -> {
-                    if (previousState is TripState.Finishing) {
-                        AppLogger.log("Play goodbye sound")
-                        soundPlayer.playPattern(SoundPatterns.TripleLongAlert)
-                    }
-                }
-                is TripState.Finishing -> Unit
-            }
-            previousState = state
         }
     }
 
@@ -261,10 +320,9 @@ class ObdMonitorService : Service() {
     private suspend fun handleEngineRpm(sample: EngineRpmSample) {
         latestRpm = sample.displayRpm()
         ObdMonitorStateStore.update { it.copy(rpm = latestRpm) }
-        tripStateManager.onRpmSample(sample)
-        tripSummaryTracker.onTripStateChanged(tripStateManager.tripState.value)
         if (sample is EngineRpmSample.Value) {
             tripSummaryTracker.onRpmChanged(sample.rpm)
+            publishActiveTrip()
         }
         checkWarmupWarning()
     }
@@ -278,7 +336,14 @@ class ObdMonitorService : Service() {
             )
         }
         tripSummaryTracker.onEngineTemperatureChanged(latestCoolantTemp)
+        publishActiveTrip()
         checkWarmupWarning()
+    }
+
+    private fun publishActiveTrip() {
+        ObdMonitorStateStore.update {
+            it.copy(activeTrip = tripSummaryTracker.activeTrip.value)
+        }
     }
 
     private suspend fun checkWarmupWarning() {
@@ -373,6 +438,10 @@ class ObdMonitorService : Service() {
         private const val NOTIFICATION_ID = 42
         private const val ACTION_STOP = "car.mazda.obd.android.action.STOP_OBD_MONITOR"
         private const val ACTION_REFRESH_ROUTE_RECORDING = "car.mazda.obd.android.action.REFRESH_ROUTE_RECORDING"
+        private const val ACTION_VALIDATE_SAVED_ENDPOINT =
+            "car.mazda.obd.android.action.VALIDATE_SAVED_ENDPOINT"
+        private const val ACTION_START_TRIP = "car.mazda.obd.android.action.START_TRIP"
+        private const val ACTION_STOP_TRIP = "car.mazda.obd.android.action.STOP_TRIP"
         private const val RPM_STALE_HOLD_MS = 2_500L
 
         fun start(context: Context) {
@@ -392,6 +461,37 @@ class ObdMonitorService : Service() {
                 Intent(context, ObdMonitorService::class.java).setAction(ACTION_REFRESH_ROUTE_RECORDING),
             )
         }
+
+        fun validateSavedEndpoint(context: Context) {
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, ObdMonitorService::class.java)
+                    .setAction(ACTION_VALIDATE_SAVED_ENDPOINT),
+            )
+        }
+
+        fun startTrip(context: Context) {
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, ObdMonitorService::class.java).setAction(ACTION_START_TRIP),
+            )
+        }
+
+        fun stopTrip(context: Context) {
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, ObdMonitorService::class.java).setAction(ACTION_STOP_TRIP),
+            )
+        }
+    }
+
+    private fun startTrip() {
+        startMonitoring()
+        tripStateManager.startTrip()
+    }
+
+    private fun stopTrip() {
+        tripStateManager.stopTrip()
     }
 
     private fun refreshRouteRecording() {

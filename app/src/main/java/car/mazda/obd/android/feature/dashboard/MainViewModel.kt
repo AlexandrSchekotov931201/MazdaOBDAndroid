@@ -7,9 +7,11 @@ import car.mazda.obd.android.feature.monitor.FloatingWidgetSize
 import car.mazda.obd.android.feature.monitor.ObdMonitorPreferences
 import car.mazda.obd.android.feature.monitor.ObdMonitorService
 import car.mazda.obd.android.feature.monitor.ObdMonitorStateStore
+import car.mazda.obd.android.feature.monitor.MonitorConnectionStatus
 import car.mazda.obd.android.feature.trip.summary.ActiveTripSummary
 import car.mazda.obd.android.feature.trip.summary.TripSummary
 import car.mazda.obd.android.feature.trip.summary.TripSummaryRepository
+import car.mazda.obd.android.feature.settings.AdapterConnectionPreferences
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -22,10 +24,11 @@ class MainViewModel(
     private val tripSummaryRepository: TripSummaryRepository,
 ) : ViewModel() {
     private val preferences = ObdMonitorPreferences(context)
+    private val adapterPreferences = AdapterConnectionPreferences(context)
 
-    val connectionTextState: StateFlow<String> = ObdMonitorStateStore.state
-        .map { it.connectionText }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, ObdMonitorStateStore.state.value.connectionText)
+    val connectionStatusState: StateFlow<MonitorConnectionStatus> = ObdMonitorStateStore.state
+        .map { it.connectionStatus }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ObdMonitorStateStore.state.value.connectionStatus)
 
     val rpmState: StateFlow<Int> = ObdMonitorStateStore.state
         .map { it.rpm }
@@ -51,10 +54,6 @@ class MainViewModel(
         .map { it.floatingWidgetSize }
         .stateIn(viewModelScope, SharingStarted.Eagerly, preferences.floatingWidgetSize)
 
-    val autoStartEnabledState: StateFlow<Boolean> = ObdMonitorStateStore.state
-        .map { it.autoStartEnabled }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, preferences.autoStartEnabled)
-
     val continueAfterAppClosedState: StateFlow<Boolean> = ObdMonitorStateStore.state
         .map { it.continueAfterAppClosed }
         .stateIn(viewModelScope, SharingStarted.Eagerly, preferences.continueAfterAppClosed)
@@ -70,11 +69,10 @@ class MainViewModel(
             it.copy(
                 floatingWidgetEnabled = preferences.floatingWidgetEnabled,
                 floatingWidgetSize = preferences.floatingWidgetSize,
-                autoStartEnabled = preferences.autoStartEnabled,
                 continueAfterAppClosed = preferences.continueAfterAppClosed,
             )
         }
-        startMonitoring()
+        if (adapterPreferences.loadVerified() != null) startMonitoring()
         observeTripSummaryRefreshes()
         viewModelScope.launch {
             tripSummaryRepository.refreshRecentTrips()
@@ -82,7 +80,7 @@ class MainViewModel(
     }
 
     private fun startMonitoring() {
-        ObdMonitorService.start(context)
+        if (adapterPreferences.loadVerified() != null) ObdMonitorService.start(context)
     }
 
     fun setFloatingWidgetEnabled(enabled: Boolean) {
@@ -90,22 +88,25 @@ class MainViewModel(
         ObdMonitorStateStore.update { it.copy(floatingWidgetEnabled = enabled) }
     }
 
-    fun setAutoStartEnabled(enabled: Boolean) {
-        preferences.autoStartEnabled = enabled
-        ObdMonitorStateStore.update { it.copy(autoStartEnabled = enabled) }
-    }
-
     fun setContinueAfterAppClosed(enabled: Boolean) {
         preferences.continueAfterAppClosed = enabled
         ObdMonitorStateStore.update { it.copy(continueAfterAppClosed = enabled) }
         // Re-deliver the start command so Android records the updated
         // START_STICKY/START_NOT_STICKY policy. The running monitor is not restarted.
-        ObdMonitorService.start(context)
+        if (adapterPreferences.loadVerified() != null) ObdMonitorService.start(context)
     }
 
     fun setFloatingWidgetSize(size: FloatingWidgetSize) {
         preferences.floatingWidgetSize = size
         ObdMonitorStateStore.update { it.copy(floatingWidgetSize = size) }
+    }
+
+    fun startTrip() {
+        if (adapterPreferences.loadVerified() != null) ObdMonitorService.startTrip(context)
+    }
+
+    fun stopTrip() {
+        if (adapterPreferences.loadVerified() != null) ObdMonitorService.stopTrip(context)
     }
 
     private fun observeTripSummaryRefreshes() {

@@ -4,7 +4,6 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
-import car.mazda.obd.android.BuildConfig
 import car.mazda.obd.android.core.elm.exception.AdapterUnreachableException
 import car.mazda.obd.android.core.elm.exception.LostConnectionException
 import car.mazda.obd.android.core.elm.exception.NetworkUnavailableException
@@ -27,9 +26,7 @@ import kotlin.coroutines.resume
 
 class WifiElmTransport(
     private val connectivityManager: ConnectivityManager,
-    private val host: String = BuildConfig.OBD_HOST,
-    private val port: Int = BuildConfig.OBD_PORT,
-    private val allowUnboundSocket: Boolean = BuildConfig.FLAVOR != PROD_FLAVOR,
+    private val endpoint: AdapterEndpoint,
 ) : ElmTransport {
     private var socket: Socket? = null
     private var reader: BufferedReader? = null
@@ -39,7 +36,7 @@ class WifiElmTransport(
         disconnect()
         try {
             val connectedSocket = createSocket()
-            connectedSocket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+            connectedSocket.connect(InetSocketAddress(endpoint.host, endpoint.port), CONNECT_TIMEOUT_MS)
             socket = connectedSocket
             reader = BufferedReader(InputStreamReader(connectedSocket.getInputStream()))
             writer = OutputStreamWriter(connectedSocket.getOutputStream())
@@ -48,13 +45,13 @@ class WifiElmTransport(
             throw NetworkUnavailableException("Network/DNS unavailable: ${e.message}", e)
         } catch (e: NoRouteToHostException) {
             disconnect()
-            throw NetworkUnavailableException("No route to $host. Check the adapter Wi-Fi network.", e)
+            throw NetworkUnavailableException("No route to ${endpoint.host}. Check the adapter Wi-Fi network.", e)
         } catch (e: SocketTimeoutException) {
             disconnect()
-            throw AdapterUnreachableException("Connection timeout to $host:$port. The adapter may be unreachable.", e)
+            throw AdapterUnreachableException("Connection timeout to $endpoint. The adapter may be unreachable.", e)
         } catch (e: ConnectException) {
             disconnect()
-            throw AdapterUnreachableException("Could not connect to $host:$port: ${e.message}", e)
+            throw AdapterUnreachableException("Could not connect to $endpoint: ${e.message}", e)
         } catch (e: SocketException) {
             disconnect()
             throw NetworkUnavailableException("Could not route OBD socket over Wi-Fi: ${e.message}", e)
@@ -113,7 +110,6 @@ class WifiElmTransport(
     private suspend fun createSocket(): Socket {
         val wifiNetwork = requestWifiNetwork() ?: findWifiNetwork()
         if (wifiNetwork != null) return wifiNetwork.socketFactory.createSocket()
-        if (allowUnboundSocket) return Socket()
         throw NetworkUnavailableException(
             "No Wi-Fi network available for OBD adapter. Connect to adapter Wi-Fi and allow using it without internet.",
         )
@@ -163,6 +159,5 @@ class WifiElmTransport(
     private companion object {
         const val CONNECT_TIMEOUT_MS = 10_000
         const val NETWORK_REQUEST_TIMEOUT_MS = 3_000L
-        const val PROD_FLAVOR = "prod"
     }
 }

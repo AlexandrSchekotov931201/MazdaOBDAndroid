@@ -11,7 +11,6 @@ val mapsApiKey = providers.gradleProperty("MAPS_API_KEY")
 android {
     namespace = "car.mazda.obd.android"
     android.buildFeatures.buildConfig = true
-    flavorDimensions += "env"
     compileSdk {
         version = release(36)
     }
@@ -35,19 +34,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-        }
-    }
-
-    productFlavors {
-        create("sim") {
-            dimension = "env"
-            buildConfigField("String", "OBD_HOST", "\"192.168.10.3\"")
-            buildConfigField("int", "OBD_PORT", "35000")
-        }
-        create("prod") {
-            dimension = "env"
-            buildConfigField("String", "OBD_HOST", "\"192.168.0.10\"")
-            buildConfigField("int", "OBD_PORT", "35000")
         }
     }
 

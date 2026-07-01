@@ -27,6 +27,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import car.mazda.obd.android.feature.monitor.MonitorConnectionStatus
 
 enum class AppDrawerDestination {
     Dashboard,
@@ -38,7 +39,7 @@ enum class AppDrawerDestination {
 @Composable
 fun AppDrawer(
     selectedDestination: AppDrawerDestination,
-    isReady: Boolean,
+    connectionStatus: MonitorConnectionStatus,
     onSelectDestination: (AppDrawerDestination) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -56,7 +57,7 @@ fun AppDrawer(
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 24.dp)
         ) {
-            DrawerHeader(isReady = isReady)
+            DrawerHeader(connectionStatus = connectionStatus)
 
             Spacer(modifier = Modifier.height(28.dp))
 
@@ -85,7 +86,7 @@ fun AppDrawer(
 }
 
 @Composable
-private fun DrawerHeader(isReady: Boolean) {
+private fun DrawerHeader(connectionStatus: MonitorConnectionStatus) {
     Column(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -100,14 +101,18 @@ private fun DrawerHeader(isReady: Boolean) {
             style = MaterialTheme.typography.bodyMedium,
             color = Color(0xFF6B7078)
         )
-        DrawerStatusChip(isReady = isReady)
+        DrawerStatusChip(connectionStatus = connectionStatus)
     }
 }
 
 @Composable
-private fun DrawerStatusChip(isReady: Boolean) {
-    val statusColor = if (isReady) Color(0xFF2E7D32) else Color(0xFFC62828)
-    val statusText = if (isReady) "Ready" else "Offline"
+private fun DrawerStatusChip(connectionStatus: MonitorConnectionStatus) {
+    val statusColor = when (connectionStatus) {
+        MonitorConnectionStatus.Ready -> Color(0xFF2E7D32)
+        MonitorConnectionStatus.Connecting -> Color(0xFF1565C0)
+        MonitorConnectionStatus.Reconnecting -> Color(0xFFEF6C00)
+        MonitorConnectionStatus.Offline -> Color(0xFFC62828)
+    }
 
     Surface(
         shape = RoundedCornerShape(50),
@@ -126,7 +131,7 @@ private fun DrawerStatusChip(isReady: Boolean) {
                     .background(statusColor)
             )
             Text(
-                text = statusText,
+                text = connectionStatus.label,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Medium
             )
