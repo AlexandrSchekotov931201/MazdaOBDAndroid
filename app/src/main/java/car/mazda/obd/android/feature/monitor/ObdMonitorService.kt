@@ -322,6 +322,7 @@ class ObdMonitorService : Service() {
         ObdMonitorStateStore.update { it.copy(rpm = latestRpm) }
         if (sample is EngineRpmSample.Value) {
             tripSummaryTracker.onRpmChanged(sample.rpm)
+            publishActiveTrip()
         }
         checkWarmupWarning()
     }
@@ -335,7 +336,14 @@ class ObdMonitorService : Service() {
             )
         }
         tripSummaryTracker.onEngineTemperatureChanged(latestCoolantTemp)
+        publishActiveTrip()
         checkWarmupWarning()
+    }
+
+    private fun publishActiveTrip() {
+        ObdMonitorStateStore.update {
+            it.copy(activeTrip = tripSummaryTracker.activeTrip.value)
+        }
     }
 
     private suspend fun checkWarmupWarning() {
