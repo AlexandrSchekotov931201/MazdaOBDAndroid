@@ -2,17 +2,6 @@
 
 Read-only ELM327-style simulator for developing the Android application without a vehicle.
 
-## Required Android build
-
-Use the standard `debug` build with this simulator:
-
-```powershell
-.\gradlew.bat assembleDebug
-```
-
-On the first app start, enter the simulator host address and port shown by the
-simulator. The same values can be changed later in the app settings.
-
 ## Run
 
 ```powershell
@@ -21,6 +10,13 @@ python elm_simulator/elm_sim_ui.py
 ```
 
 Open `http://127.0.0.1:8080/`. The simulated Wi-Fi ELM transport listens on TCP port `35000`.
+
+## Connect the Android app
+
+The simulator can be used to test any application build. In the app, enter the
+IP address of the computer running the simulator and TCP port `35000`. Port
+`8080` belongs only to the simulator web interface and is not an ELM endpoint.
+Connection details can be changed later in the app settings.
 
 ## Tests
 
