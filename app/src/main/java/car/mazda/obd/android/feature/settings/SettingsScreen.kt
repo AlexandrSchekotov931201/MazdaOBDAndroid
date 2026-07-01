@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import car.mazda.obd.android.feature.dashboard.MainViewModel
 import car.mazda.obd.android.feature.monitor.FloatingWidgetSize
+import car.mazda.obd.android.feature.monitor.MonitorConnectionStatus
 import car.mazda.obd.android.ui.AppToolbar
 import car.mazda.obd.android.feature.trip.route.TripRouteSettingsViewModel
 import car.mazda.obd.android.core.elm.transport.AdapterEndpoint
@@ -47,7 +48,9 @@ fun SettingsScreen(
     val autoStartEnabled by viewModel.autoStartEnabledState.collectAsStateWithLifecycle()
     val continueAfterAppClosed by viewModel.continueAfterAppClosedState.collectAsStateWithLifecycle()
     val routeRecordingEnabled by routeSettingsViewModel.recordingEnabled.collectAsStateWithLifecycle()
-    val adapterVerified = AdapterConnectionPreferences(LocalContext.current).isVerified
+    val connectionStatus by viewModel.connectionStatusState.collectAsStateWithLifecycle()
+    val adapterVerified = AdapterConnectionPreferences(LocalContext.current).isVerified ||
+        connectionStatus == MonitorConnectionStatus.Ready
 
     Column(modifier = modifier.fillMaxSize()) {
         AppToolbar(
