@@ -20,6 +20,7 @@ import car.mazda.obd.android.R
 import car.mazda.obd.android.core.elm.OBDClient
 import car.mazda.obd.android.core.elm.OBDSessionManager
 import car.mazda.obd.android.core.elm.OBDSessionState
+import car.mazda.obd.android.core.elm.transport.AdapterEndpoint
 import car.mazda.obd.android.core.elm.transport.WifiElmTransport
 import car.mazda.obd.android.core.logs.AppLogger
 import car.mazda.obd.android.core.sound.SoundPatterns
@@ -236,7 +237,7 @@ class ObdMonitorService : Service() {
     }
 
     private fun createObdConnectionStack(
-        endpoint: car.mazda.obd.android.core.elm.transport.AdapterEndpoint =
+        endpoint: AdapterEndpoint =
             requireNotNull(AdapterConnectionPreferences(this).load()),
     ) {
         val connectivityManager = requireNotNull(getSystemService(ConnectivityManager::class.java)) {
